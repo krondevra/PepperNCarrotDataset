@@ -1,0 +1,4 @@
+peppercarrot_zips/
+*.part
+__pycache__/
+*.pyc
