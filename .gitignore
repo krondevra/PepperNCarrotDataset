@@ -1,4 +1,6 @@
 peppercarrot_zips/
-*.part
+processed_png/
 __pycache__/
+*.part
 *.pyc
+.tmp/
