@@ -1,5 +1,7 @@
 peppercarrot_zips/
 processed_png/
+processed_png_needs_review/
+processing_report/
 __pycache__/
 *.part
 *.pyc
