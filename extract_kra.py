@@ -4,8 +4,8 @@ import shutil
 import zipfile
 
 
-ZIPS_DIR = Path("peppercarrot_zips")
-TMP_DIR = Path(".tmp/kra_extracted")
+ZIPS_DIR = Path("data/peppercarrot_zips")
+TMP_DIR = Path("data/kra_extracted")
 
 ONLY_PAGE_KRA = True
 CLEAN_TMP_BEFORE_RUN = False

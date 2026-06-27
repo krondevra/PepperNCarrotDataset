@@ -11,8 +11,8 @@ import numpy as np
 from PIL import Image
 
 
-TMP_DIR = Path(".tmp/kra_extracted")
-OUTPUT_DIR = Path("processed_png")
+TMP_DIR = Path("data/kra_extracted")
+OUTPUT_DIR = Path("data/processed_png")
 REPORT_DIR = Path("processing_report")
 
 ONLY_PAGE_KRA = True

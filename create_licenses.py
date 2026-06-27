@@ -9,7 +9,7 @@ import requests
 from bs4 import BeautifulSoup
 
 
-ZIPS_DIR = Path("peppercarrot_zips")
+ZIPS_DIR = Path("data/peppercarrot_zips")
 LICENSES_DIR = Path("licenses")
 
 ABOUT_URL = "https://www.peppercarrot.com/en/about/index.html"
