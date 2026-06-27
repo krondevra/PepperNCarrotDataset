@@ -13,7 +13,7 @@ from PIL import Image
 
 TMP_DIR = Path("data/kra_extracted")
 OUTPUT_DIR = Path("data/processed_png")
-REPORT_DIR = Path("processing_report")
+REPORT_DIR = Path("reports")
 
 ONLY_PAGE_KRA = True
 
