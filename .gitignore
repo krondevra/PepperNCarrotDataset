@@ -1,8 +1,6 @@
-peppercarrot_zips/
-processed_png/
-processed_png_needs_review/
+data/
 processing_report/
+processed_png_needs_review/
 __pycache__/
 *.part
 *.pyc
-.tmp/
