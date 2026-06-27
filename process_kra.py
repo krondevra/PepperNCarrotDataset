@@ -298,6 +298,7 @@ def apply_border_mask(image: Image.Image, mask: Image.Image) -> Image.Image:
     return result
 
 
+
 def load_merged_image(zip_file) -> Image.Image:
     if "mergedimage.png" not in zip_file.namelist():
         raise RuntimeError("mergedimage.png not found")
@@ -355,6 +356,17 @@ def process_kra(kra_path: Path) -> dict:
             raise RuntimeError(f"unsupported border layer nodetype: {nodetype!r}")
 
         coverage = mask_coverage(mask)
+
+        if coverage == 0:
+            return {
+                "status": "skipped",
+                "mode": None,
+                "coverage": 0.0,
+                "border_layer_name": layer_name,
+                "border_layer_type": nodetype,
+                "reason": "border mask is empty",
+                "output": None,
+            }
 
         if not (MIN_MASK_COVERAGE <= coverage <= MAX_MASK_COVERAGE):
             raise RuntimeError(
