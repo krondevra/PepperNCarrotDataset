@@ -137,4 +137,6 @@ target_path = Path("data/synthesized/ep01_Potion-of-Flight/transparent/E01P01.pn
 
 ## License
 
-Pepper & Carrot is by [David Revoy](https://www.peppercarrot.com/) and licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). This pipeline and generated dataset inherit that license. Attribution: **"Pepper & Carrot" by David Revoy**.
+**Pipeline code** (all `.py` files) — [MIT License](LICENSE) © 2026 Devids Kronbergs.
+
+**Artwork and generated dataset** — derived from [Pepper & Carrot](https://www.peppercarrot.com/) by [David Revoy](https://www.davidrevoy.com/), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Attribution: **"Pepper & Carrot" by David Revoy**.
