@@ -17,6 +17,12 @@ REPORT_DIR = Path("reports")
 
 ONLY_PAGE_KRA = True
 
+# Files with known quality issues that must not appear in the dataset.
+# The processed PNG is deleted if it already exists on disk.
+BLACKLISTED = {
+    "E03P02.kra": "unclipped artwork bleed produces artifact bands in the border mask",
+}
+
 # Raster border layer: pixel counts as border if alpha > this and RGB >= WHITE_THRESHOLD
 RASTER_ALPHA_THRESHOLD = 8
 RASTER_WHITE_THRESHOLD = 200
@@ -316,6 +322,22 @@ def build_output_path(kra_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def process_kra(kra_path: Path) -> dict:
+    if kra_path.name in BLACKLISTED:
+        reason = BLACKLISTED[kra_path.name]
+        output_path = build_output_path(kra_path)
+        if output_path.exists():
+            output_path.unlink()
+            print(f"Deleted {output_path.name}: {reason}")
+        return {
+            "status": "skipped",
+            "mode": None,
+            "coverage": None,
+            "border_layer_name": None,
+            "border_layer_type": None,
+            "reason": f"blacklisted: {reason}",
+            "output": None,
+        }
+
     with zipfile.ZipFile(kra_path, "r") as z:
         width, height, layers, xml_root = get_krita_info(z)
         border_layer = choose_border_layer(layers)
