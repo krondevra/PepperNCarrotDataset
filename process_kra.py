@@ -59,7 +59,7 @@ def get_krita_info(zip_file):
     width = int(image.attrib["width"])
     height = int(image.attrib["height"])
     layers = [dict(l.attrib) for l in root.findall(".//k:layer", ns)]
-    return width, height, layers
+    return width, height, layers, root
 
 
 def choose_border_layer(layers: list):
@@ -250,6 +250,35 @@ def build_raster_mask(zip_file, layer: dict, canvas_w: int, canvas_h: int) -> Im
     return Image.fromarray(is_border.astype(np.uint8) * 255, "L")
 
 
+def build_group_mask(zip_file, xml_root, group_filename: str, canvas_w: int, canvas_h: int) -> Image.Image:
+    ns = {"k": "http://www.calligra.org/DTD/krita"}
+    group_el = next(
+        (l for l in xml_root.findall(".//k:layer", ns)
+         if l.attrib.get("filename") == group_filename),
+        None,
+    )
+    if group_el is None:
+        raise RuntimeError(f"grouplayer element not found for filename {group_filename!r}")
+
+    paint_layers = [
+        dict(child.attrib)
+        for child in group_el.findall(".//k:layer", ns)
+        if child.attrib.get("nodetype") == "paintlayer"
+    ]
+    if not paint_layers:
+        raise RuntimeError(f"no paintlayer children found in grouplayer {group_filename!r}")
+
+    composite = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    for child in paint_layers:
+        layer_img = decode_krita_paint_layer(zip_file, child["filename"], canvas_w, canvas_h)
+        composite.alpha_composite(layer_img)
+
+    arr = np.array(composite, dtype=np.uint8)
+    # Frame layers contain only border strokes (no mixed content), so any opaque pixel is border
+    is_border = arr[:, :, 3] > RASTER_ALPHA_THRESHOLD
+    return Image.fromarray(is_border.astype(np.uint8) * 255, "L")
+
+
 # ---------------------------------------------------------------------------
 # Mask application
 # ---------------------------------------------------------------------------
@@ -287,7 +316,7 @@ def build_output_path(kra_path: Path) -> Path:
 
 def process_kra(kra_path: Path) -> dict:
     with zipfile.ZipFile(kra_path, "r") as z:
-        width, height, layers = get_krita_info(z)
+        width, height, layers, xml_root = get_krita_info(z)
         border_layer = choose_border_layer(layers)
 
         if border_layer is None:
@@ -316,6 +345,10 @@ def process_kra(kra_path: Path) -> dict:
 
         elif nodetype == "paintlayer":
             mask = build_raster_mask(z, border_layer, width, height)
+            mode = "raster_border"
+
+        elif nodetype == "grouplayer":
+            mask = build_group_mask(z, xml_root, layer_filename, width, height)
             mode = "raster_border"
 
         else:
@@ -371,7 +404,7 @@ def write_report(rows: list):
             writer.writerows(rows)
 
 
-def process_all_kra(kra_files: list):
+def process_all_kra(kra_files: list, base_rows: list = None):
     rows = []
     counts = {"saved": 0, "skipped": 0, "error": 0}
     mode_counts = {}
@@ -416,7 +449,12 @@ def process_all_kra(kra_files: list):
             })
             print(f"Error {kra_path.name}: {e}")
 
-    write_report(rows)
+    if base_rows is not None:
+        retried_names = {r["kra_file"] for r in rows}
+        merged = [r for r in base_rows if r["kra_file"] not in retried_names] + rows
+        write_report(merged)
+    else:
+        write_report(rows)
 
     print(f"\nDone.")
     print(f"Saved:   {counts.get('saved', 0)}")
@@ -431,8 +469,30 @@ def process_all_kra(kra_files: list):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--retry-errors", action="store_true",
+                        help="Re-process only files that errored in the last report")
+    args = parser.parse_args()
+
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.retry_errors:
+        report_path = REPORT_DIR / "processing_report.json"
+        if not report_path.exists():
+            print("No existing report found; run without --retry-errors first.")
+            return
+        with open(report_path, encoding="utf-8") as f:
+            base_rows = json.load(f)
+        error_names = {r["kra_file"] for r in base_rows if r["status"] == "error"}
+        if not error_names:
+            print("No errors in the last report.")
+            return
+        kra_files = sorted(f for f in TMP_DIR.rglob("*.kra") if f.name in error_names)
+        print(f"Retrying {len(kra_files)} errored file(s):\n")
+        process_all_kra(kra_files, base_rows=base_rows)
+        return
 
     kra_files = sorted(TMP_DIR.rglob("*.kra"))
 
