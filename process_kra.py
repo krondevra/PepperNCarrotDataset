@@ -216,14 +216,11 @@ def decode_krita_paint_layer(zip_file, filename: str, canvas_w: int, canvas_h: i
         pos += payload_size
 
         if compression == "LZF":
-            raw = lzf_decompress(payload)
+            raw = lzf_decompress(payload[1:])  # byte 0 is a version prefix, not LZF data
         elif compression == "RAW":
             raw = payload
         else:
             raise RuntimeError(f"unsupported tile compression: {compression!r}")
-
-        if len(raw) == expected + 1:
-            raw = raw[1:]
         if len(raw) < expected:
             raw = raw + b"\x00" * (expected - len(raw))
         if len(raw) > expected:
