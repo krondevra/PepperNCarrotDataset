@@ -1,14 +1,19 @@
 """
 Synthesize dataset variants from processed Pepper&Carrot pages.
 
-Five variants are produced per page:
+Nine variants are produced per page:
 
-  transparent/  — artwork with transparent borders              (target)
-  white/        — raw merged image, white borders intact        (input)
-  black/        — artwork composited on solid black background  (input)
-  jpeg/         — white borders + heavy JPEG compression        (input)
-  framed/       — artwork on white background, 1px black
-                  outline drawn around each panel boundary      (input)
+  transparent/              — clean artwork, transparent borders              (target)
+  white/                    — raw merged image, white borders intact          (input)
+  black/                    — artwork on solid black background               (input)
+  jpeg/                     — white borders + JPEG compression                (input)
+  framed/                   — white bg + 1px black panel outline              (input)
+  framed_jpeg/              — white bg + 1px frame + JPEG compression;
+                              hardest case: borders, frame, and noise         (input)
+  transparent_framed/       — transparent + 1px black panel outline           (input)
+  transparent_jpeg/         — transparent + JPEG artifacts on RGB, alpha kept (input)
+  transparent_framed_jpeg/  — transparent + 1px frame + JPEG compression;
+                              frame loses true black as in real manhwa scans  (input)
 """
 
 import argparse
@@ -19,6 +24,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
+from tqdm import tqdm
 
 from process_kra import (
     TMP_DIR,
@@ -93,15 +99,57 @@ def make_jpeg_variant(merged: Image.Image) -> Image.Image:
 
 
 def make_framed_variant(transparent: Image.Image) -> Image.Image:
-    """
-    Artwork on white background with a 1px black outline drawn at each
-    panel boundary (the first transparent pixel ring outside the content).
-    """
+    """Artwork on white background with a 1px black outline at each panel boundary."""
     bg = Image.new("RGBA", transparent.size, (255, 255, 255, 255))
     bg.alpha_composite(transparent)
     arr = np.array(bg)
     arr[panel_edge(transparent)] = [0, 0, 0, 255]
     return Image.fromarray(arr)
+
+
+def make_transparent_framed_variant(transparent: Image.Image) -> Image.Image:
+    """Transparent PNG with a 1px black outline at each panel boundary, no white fill."""
+    arr = np.array(transparent.copy())
+    arr[panel_edge(transparent)] = [0, 0, 0, 255]
+    return Image.fromarray(arr)
+
+
+def make_transparent_jpeg_variant(transparent: Image.Image) -> Image.Image:
+    """Transparent PNG with JPEG compression artifacts on the RGB channels, alpha preserved."""
+    alpha = transparent.getchannel("A")
+    buf = io.BytesIO()
+    transparent.convert("RGB").save(buf, format="JPEG", quality=JPEG_QUALITY)
+    buf.seek(0)
+    compressed_rgb = Image.open(buf).copy()
+    compressed_rgb.putalpha(alpha)
+    return compressed_rgb
+
+
+def make_framed_jpeg_variant(transparent: Image.Image, merged: Image.Image) -> Image.Image:
+    """White-border image with 1px black frame drawn first, then JPEG compressed."""
+    arr = np.array(merged.convert("RGB"), dtype=np.uint8)
+    arr[panel_edge(transparent)] = [0, 0, 0]
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="JPEG", quality=JPEG_QUALITY)
+    buf.seek(0)
+    return Image.open(buf).copy().convert("RGBA")
+
+
+def make_transparent_framed_jpeg_variant(transparent: Image.Image) -> Image.Image:
+    """
+    Transparent + 1px black frame + JPEG compression on RGB.
+    The frame loses true black due to JPEG artifacts, matching real manhwa scan behaviour.
+    """
+    alpha = transparent.getchannel("A")
+    # Draw the frame on the RGB, then compress — frame pixels bleed into near-black
+    arr = np.array(transparent.convert("RGB"), dtype=np.uint8)
+    arr[panel_edge(transparent)] = [0, 0, 0]
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="JPEG", quality=JPEG_QUALITY)
+    buf.seek(0)
+    compressed_rgb = Image.open(buf).copy()
+    compressed_rgb.putalpha(alpha)
+    return compressed_rgb
 
 
 def process_page(kra_path: Path, processed_png: Path, synth_ep_dir: Path):
@@ -110,22 +158,27 @@ def process_page(kra_path: Path, processed_png: Path, synth_ep_dir: Path):
 
     transparent = Image.open(processed_png).convert("RGBA")
 
-    for d in ("transparent", "white", "black", "jpeg", "framed"):
+    for d in ("transparent", "white", "black", "jpeg", "framed", "framed_jpeg",
+              "transparent_framed", "transparent_jpeg", "transparent_framed_jpeg"):
         (synth_ep_dir / d).mkdir(parents=True, exist_ok=True)
 
     transparent.save(synth_ep_dir / "transparent" / filename, "PNG")
     make_black_variant(transparent).save(synth_ep_dir / "black" / filename, "PNG")
     make_framed_variant(transparent).save(synth_ep_dir / "framed" / filename, "PNG")
+    make_transparent_framed_variant(transparent).save(synth_ep_dir / "transparent_framed" / filename, "PNG")
+    make_transparent_jpeg_variant(transparent).save(synth_ep_dir / "transparent_jpeg" / filename, "PNG")
+    make_transparent_framed_jpeg_variant(transparent).save(synth_ep_dir / "transparent_framed_jpeg" / filename, "PNG")
 
     mask, merged = load_kra_data(kra_path)
     if mask is None:
-        print(f"  {stem}: mask unavailable — white/jpeg variants skipped")
+        print(f"  {stem}: mask unavailable — white/jpeg/framed_jpeg variants skipped")
         return
 
     merged.save(synth_ep_dir / "white" / filename, "PNG")
     make_jpeg_variant(merged).save(synth_ep_dir / "jpeg" / filename, "PNG")
+    make_framed_jpeg_variant(transparent, merged).save(synth_ep_dir / "framed_jpeg" / filename, "PNG")
 
-    print(f"  {stem}: transparent / white / black / jpeg / framed")
+    pass
 
 
 def main():
@@ -162,19 +215,22 @@ def main():
         print(f"No episode directories found in {OUTPUT_DIR}")
         return
 
+    all_pages = []
     for ep_dir in ep_dirs:
-        synth_ep_dir = SYNTH_DIR / ep_dir.name
-        print(f"\n{ep_dir.name}")
-
         for png in sorted(ep_dir.glob("*.png")):
             kra_name = png.stem + ".kra"
             if kra_name not in saved_names:
                 continue
             kra_files = list(Path(TMP_DIR).rglob(kra_name))
-            if not kra_files:
-                print(f"  {kra_name}: KRA not found on disk")
-                continue
-            process_page(kra_files[0], png, synth_ep_dir)
+            if kra_files:
+                all_pages.append((ep_dir, kra_files[0], png))
+
+    with tqdm(total=len(all_pages), unit="page") as bar:
+        for ep_dir, kra_path, png in all_pages:
+            synth_ep_dir = SYNTH_DIR / ep_dir.name
+            bar.set_description(f"{ep_dir.name}/{png.name}")
+            process_page(kra_path, png, synth_ep_dir)
+            bar.update(1)
 
 
 if __name__ == "__main__":
