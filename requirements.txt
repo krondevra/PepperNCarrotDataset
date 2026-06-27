@@ -1,0 +1,6 @@
+Pillow
+numpy
+cairosvg
+requests
+beautifulsoup4
+tqdm
