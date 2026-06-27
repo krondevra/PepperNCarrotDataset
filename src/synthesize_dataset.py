@@ -1,12 +1,14 @@
 """
 Synthesize dataset variants from processed Pepper&Carrot pages.
 
-Four variants are produced per page:
+Five variants are produced per page:
 
-  _transparent  — artwork with transparent borders  (from data/processed_png)
-  _white        — original merged image, white borders intact  (from .kra)
-  _black        — artwork composited on solid black background
-  _jpeg         — white borders + 1px black frame at boundary + heavy JPEG compression
+  transparent/  — artwork with transparent borders              (target)
+  white/        — raw merged image, white borders intact        (input)
+  black/        — artwork composited on solid black background  (input)
+  jpeg/         — white borders + heavy JPEG compression        (input)
+  framed/       — artwork on white background, 1px black
+                  outline drawn around each panel boundary      (input)
 """
 
 import argparse
@@ -33,8 +35,6 @@ from process_kra import (
 
 SYNTH_DIR = Path("data/synthesized")
 JPEG_QUALITY = 15  # aggressive — artifacts visible under careful inspection
-
-VARIANT_DIRS = ["transparent", "white", "black", "jpeg"]
 
 
 def load_kra_data(kra_path: Path):
@@ -65,6 +65,18 @@ def load_kra_data(kra_path: Path):
     return mask, merged
 
 
+def panel_edge(transparent: Image.Image) -> np.ndarray:
+    """
+    Return a boolean mask of the 1px ring of content pixels at the panel boundary
+    (outermost artwork pixels adjacent to the transparent border).
+    Drawing black here guarantees no gap between artwork and frame.
+    """
+    alpha = np.array(transparent.getchannel("A"))
+    border = Image.fromarray((alpha == 0).astype(np.uint8) * 255)
+    dilated = np.array(border.filter(ImageFilter.MaxFilter(3))) > 0
+    return dilated & (alpha > 0)
+
+
 def make_black_variant(transparent: Image.Image) -> Image.Image:
     """Composite artwork onto a solid black background."""
     bg = Image.new("RGBA", transparent.size, (0, 0, 0, 255))
@@ -72,31 +84,24 @@ def make_black_variant(transparent: Image.Image) -> Image.Image:
     return bg
 
 
-def make_jpeg_variant(merged: Image.Image, content_alpha: np.ndarray) -> Image.Image:
-    """
-    White-border image with:
-      - 1px black frame drawn at the content/border boundary
-      - heavy JPEG compression to introduce visible artifacts
-    """
-    rgb = merged.convert("RGB")
-    arr = np.array(rgb, dtype=np.uint8)
-
-    # Find the 1px ring: transparent pixels that are directly adjacent to content pixels.
-    # content_alpha: 0 = border (transparent in processed PNG), 255 = artwork
-    content_img = Image.fromarray((content_alpha > 0).astype(np.uint8) * 255)
-    dilated = np.array(content_img.filter(ImageFilter.MaxFilter(3))) > 0
-    content_bool = content_alpha > 0
-    edge = dilated & ~content_bool  # 1px outward ring from content into border area
-
-    arr[edge] = [0, 0, 0]
-
-    # Round-trip through JPEG to bake in compression artifacts
+def make_jpeg_variant(merged: Image.Image) -> Image.Image:
+    """White-border image with heavy JPEG compression to introduce visible artifacts."""
     buf = io.BytesIO()
-    Image.fromarray(arr).save(buf, format="JPEG", quality=JPEG_QUALITY)
+    merged.convert("RGB").save(buf, format="JPEG", quality=JPEG_QUALITY)
     buf.seek(0)
-    compressed = Image.open(buf).copy()
+    return Image.open(buf).copy().convert("RGBA")
 
-    return compressed.convert("RGBA")
+
+def make_framed_variant(transparent: Image.Image) -> Image.Image:
+    """
+    Artwork on white background with a 1px black outline drawn at each
+    panel boundary (the first transparent pixel ring outside the content).
+    """
+    bg = Image.new("RGBA", transparent.size, (255, 255, 255, 255))
+    bg.alpha_composite(transparent)
+    arr = np.array(bg)
+    arr[panel_edge(transparent)] = [0, 0, 0, 255]
+    return Image.fromarray(arr)
 
 
 def process_page(kra_path: Path, processed_png: Path, synth_ep_dir: Path):
@@ -104,25 +109,23 @@ def process_page(kra_path: Path, processed_png: Path, synth_ep_dir: Path):
     filename = f"{stem}.png"
 
     transparent = Image.open(processed_png).convert("RGBA")
-    (synth_ep_dir / "transparent").mkdir(parents=True, exist_ok=True)
+
+    for d in ("transparent", "white", "black", "jpeg", "framed"):
+        (synth_ep_dir / d).mkdir(parents=True, exist_ok=True)
+
     transparent.save(synth_ep_dir / "transparent" / filename, "PNG")
+    make_black_variant(transparent).save(synth_ep_dir / "black" / filename, "PNG")
+    make_framed_variant(transparent).save(synth_ep_dir / "framed" / filename, "PNG")
 
     mask, merged = load_kra_data(kra_path)
     if mask is None:
-        print(f"  {stem}: mask unavailable — only transparent variant saved")
+        print(f"  {stem}: mask unavailable — white/jpeg variants skipped")
         return
 
-    for d in ("white", "black", "jpeg"):
-        (synth_ep_dir / d).mkdir(parents=True, exist_ok=True)
-
     merged.save(synth_ep_dir / "white" / filename, "PNG")
+    make_jpeg_variant(merged).save(synth_ep_dir / "jpeg" / filename, "PNG")
 
-    make_black_variant(transparent).save(synth_ep_dir / "black" / filename, "PNG")
-
-    content_alpha = np.array(transparent.getchannel("A"))
-    make_jpeg_variant(merged, content_alpha).save(synth_ep_dir / "jpeg" / filename, "PNG")
-
-    print(f"  {stem}: transparent / white / black / jpeg")
+    print(f"  {stem}: transparent / white / black / jpeg / framed")
 
 
 def main():
