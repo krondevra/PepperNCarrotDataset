@@ -225,9 +225,11 @@ print(f"  -> assets/pipeline.png  ({W}x{H})")
 # ══════════════════════════════════════════════════════════════════════════════
 print("Building variants_grid.png ...")
 
-CELL_W = 360
-COLS   = 3
-PAD_G  = 6
+CELL_W      = 360
+COLS        = 3
+PAD_G       = 6
+GRID_ZOOM_SRC = 16
+GRID_ZOOM_DSP = GRID_ZOOM_SRC * 5   # 80px inset
 
 cells = []
 for folder, role, desc in VARIANTS:
@@ -242,8 +244,27 @@ for folder, role, desc in VARIANTS:
         vis = composite_on_bg(panel, (0, 0, 0))
     else:
         vis = composite_on_bg(panel, (255, 255, 255))
-    vis  = fit_width(vis, CELL_W)
-    cell = stack_label(vis, folder.replace("_", " "), f"{role} - {desc}")
+    vis = fit_width(vis, CELL_W)
+    ph  = vis.height
+
+    border_start_x = int(CELL_W * (2481 - 102) / 2481)
+    shift = GRID_ZOOM_SRC // 4
+    zx1 = min(border_start_x - GRID_ZOOM_SRC // 2 + shift, CELL_W - GRID_ZOOM_SRC)
+    zx2 = zx1 + GRID_ZOOM_SRC
+    zy1, zy2 = ph - GRID_ZOOM_SRC, ph
+
+    zoom_big = vis.crop((zx1, zy1, zx2, zy2)).resize((GRID_ZOOM_DSP, GRID_ZOOM_DSP), Image.NEAREST)
+
+    vis_m = vis.copy().convert("RGB")
+    draw  = ImageDraw.Draw(vis_m)
+    draw.rectangle([zx1-2, zy1-2, zx2-1, zy2-1], outline=(255, 60, 60), width=2)
+    ix = CELL_W - GRID_ZOOM_DSP - INSET_PAD
+    iy = ph     - GRID_ZOOM_DSP - INSET_PAD - 30
+    vis_m.paste(zoom_big.convert("RGB"), (ix, iy))
+    draw.rectangle([ix-2, iy-2, ix+GRID_ZOOM_DSP, iy+GRID_ZOOM_DSP], outline=(255, 60, 60), width=2)
+
+    cell = stack_label(Image.fromarray(np.array(vis_m)).convert("RGBA"),
+                       folder.replace("_", " "), f"{role} - {desc}")
     cells.append(cell.convert("RGB"))
 
 ROWS   = (len(cells) + COLS - 1) // COLS
