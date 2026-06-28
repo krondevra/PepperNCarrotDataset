@@ -53,26 +53,41 @@ Real-world manhwa chapters are distributed as JPEG images where black frame line
 ## Version history & decisions
 
 Each version reflects a specific problem encountered and the decision made to solve it.
+Version scheme: `v1.X.Y` — `X` is the feature group, `Y` is the iteration within it.
 
-### v1.0 – v1.5 · Initial pipeline
-Download, extraction, and first working border removal. Established the three border layer types present in Krita files: `paintlayer` (raster white stroke), `shapelayer` (SVG vector), and `grouplayer` (composited children).
+### v1.0.0 · Initial setup
+Download pipeline (`download_chapters.py`) and license attribution scraper (`create_licenses.py`). Established the project structure and `.gitignore`.
 
-### v1.6 · LZF prefix fix
+### v1.1.0 – v1.1.1 · KRA border extraction
+First working extraction from `.kra` ZIP archives — parse `maindoc.xml`, decode Krita tile data, apply border mask to `mergedimage.png`. Added scored layer selection (prefers `shapelayer` over `paintlayer`), SVG rendering via cairosvg, and batch episode processing.
+
+Established the three border layer types present in Krita files: `paintlayer` (raster white stroke), `shapelayer` (SVG vector), and `grouplayer` (composited children).
+
+### v1.2.0 – v1.2.2 · Code structure
+Split monolithic script into `extract_kra.py` and `process_kra.py`. Unified all data paths under `data/`. Renamed report output directory to `reports/`.
+
+### v1.3.0 · LZF prefix fix
 Krita tile data uses LZF compression with a 1-byte version prefix before the compressed payload. Feeding the full buffer to the decompressor caused failures across 19 files. Fix: skip byte 0 before decompressing.
 
-### v1.7 · Grouplayer border support + `--retry-errors`
+### v1.3.1 · Grouplayer border support + `--retry-errors`
 Some episodes wrap the border layer in a group. Added `build_group_mask` which composites all descendant paintlayers and thresholds on alpha (group border strokes are black, not white — so the white-pixel check used for raster layers would return empty masks). Added `--retry-errors` flag to reprocess only failed files without rerunning the full ~18-minute pipeline.
 
-### v1.8 · Skip empty border masks
+### v1.3.2 · Skip empty border masks
 E28P00 has an SVG border layer with coordinates in global document space (Y=7334–27067) far outside the 795px canvas viewport. The resulting mask has zero coverage. Rather than raising an error, treat it as skipped — consistent with all other P00 (cover) files which have no border layer.
 
-### v1.9 – v1.10 · Blacklist + synthesize_dataset
+### v1.4.0 – v1.4.1 · Blacklist + synthesize_dataset
 E03P02 has unclipped artwork bleed: the flat merged image exposes artwork from adjacent panels in the gutter bands. This is unfixable without re-rendering individual panel layer groups from the KRA source. Added `BLACKLISTED` dict in `process_kra.py` — blacklisted pages are skipped and any existing output PNG is deleted.
 
 Introduced `synthesize_dataset.py` to generate the multi-variant training set. All scripts moved to `src/`.
 
-### v1.11 · Complete input matrix
+### v1.4.2 · Complete input matrix
 Added `framed_jpeg` and the three `transparent_*` variants to cover every combination of background, frame, and JPEG degradation. Added tqdm progress bar.
+
+### v1.5.0 · README and visual assets
+README with pipeline overview, variant table, version history, and usage instructions. Visual assets: `pipeline.png` (before/after), `variants_demo.gif` (animated), `variants_grid.png` (3×3 grid). Special thanks to David Revoy.
+
+### v1.5.1 – v1.5.3 · Asset refinements
+Single panel per frame (first panel detected from transparent alpha). GIF zoom inset moved to bottom-right corner, source zone straddling the artwork/border boundary. Variants grid updated with per-cell zoom insets. `make_assets.py` moved to `src/`. Language stats fixed via `.gitattributes`.
 
 ---
 
