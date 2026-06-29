@@ -4,25 +4,107 @@
 
 A pipeline to extract clean, border-free comic panel artwork from Pepper & Carrot, packaged as a multi-variant dataset for ML training.
 
-The goal: teach a U-Net model to remove comic panel borders from manhwa-style pages — handling white borders, black borders, JPEG compression artifacts, and inked frame lines as input, with clean transparent-border artwork as the target.
+The goal: teach a model to remove comic panel borders and backgrounds from manhwa-style pages — handling white borders, black borders, gradient fills, JPEG compression artifacts, inked frame lines, and synthetic text overlays as input, with clean border-transparent artwork as the target.
+
+---
+
+## Dataset at a glance
+
+| | |
+|---|---|
+| Episodes | 38 (ep01 – ep39, no ep33) |
+| Pages | 281 |
+| Base variants per page | 9 |
+| Overlay variants per page | 4 (generated separately) |
+| Renders | 281 × 2 (initial + cleaned) |
+
+**Target** for every input variant is the same file: `preprocessing/renders/{ep}/cleaned/{page}.png` — clean artwork with borders fully transparent.
 
 ---
 
 ## Pipeline
 
 ```
-download_chapters.py  →  extract_kra.py  →  process_kra.py  →  synthesize_dataset.py
-   fetch source            unzip .kra         detect & remove        generate 9 ML
-   .kra files              archives           border layer           training variants
+download_chapters.py → extract_kra.py → process_kra.py → synthesize_dataset.py → synthesize_overlays.py
+  fetch art-pack        unzip .kra        detect & remove    9 base training        SFX + bubble
+  zip archives          archives          border layer       variants               overlay variants
+                           ↓ (delete after process)
+                    preprocessing/kra/
+```
+
+After `process_kra.py` finishes, `preprocessing/kra/` and `preprocessing/zips/` can be deleted — the full dataset is generated from `preprocessing/renders/` alone.
+
+Overlay assets are generated once and reused:
+```
+make_sfx.py     → data/overlays/sfx/      (266 Korean SFX images, 7 style variants each)
+make_bubbles.py → data/overlays/bubbles/  (11 speech bubble / text box shapes)
 ```
 
 ![Before and after border removal](assets/pipeline.png)
 
 ---
 
-## Dataset Variants
+## Directory structure
 
-Each processed page produces **9 variants** stored as `data/synthesized/<episode>/<variant>/<page>.png`. All input variants map to the same `transparent/` target — the clean artwork with borders removed.
+```
+data/
+  preprocessing/
+    renders/
+      ep01_Potion-of-Flight/
+        initial/      ← raw merged render from KRA (borders intact, any color)
+        cleaned/      ← border-removed RGBA artwork  ← TARGET for all variants
+      ep02_Rainbow-potions/
+        ...
+  dataset/
+    ep01_Potion-of-Flight/
+      black/              framed/             framed_cleaned/
+      framed_jpeg/        framed_jpeg_cleaned/
+      gradient_border/    gradient_border_inv/
+      jpeg/               jpeg_cleaned/
+      sfx_overlay/        sfx_overlay_cleaned/
+      bubble_overlay/     bubble_overlay_cleaned/
+    ep02_Rainbow-potions/
+      ...
+  overlays/
+    sfx/       ← 266 RGBA PNG overlays
+    bubbles/   ← 11 RGBA PNG overlays
+  fonts/
+```
+
+---
+
+## Dataset variants
+
+All input variants map to the same `cleaned/` target. Pairs are named so they sort adjacent in any file browser.
+
+### Base variants — `synthesize_dataset.py`
+
+| Folder | Description |
+|---|---|
+| `black/` | Artwork composited on solid black background |
+| `framed/` | White background + 1px black outline at each panel edge |
+| `framed_cleaned/` | Transparent background + 1px black outline |
+| `framed_jpeg/` | White bg + 1px frame + JPEG compression (quality 15) |
+| `framed_jpeg_cleaned/` | Transparent bg + 1px frame + JPEG — frame bleeds as in real scans |
+| `gradient_border/` | Border pixels filled black→white gradient across full page height |
+| `gradient_border_inv/` | Border pixels filled white→black gradient |
+| `jpeg/` | Initial render with heavy JPEG compression |
+| `jpeg_cleaned/` | Cleaned RGBA with JPEG artifacts on RGB channels, alpha preserved |
+
+#### Why so many variants?
+
+Real-world manhwa chapters are distributed as JPEG images where black frame lines are never true `#000000` — compression bleeds colour into adjacent pixels. A model trained only on white-border inputs will fail on these. The matrix covers every combination of background style, frame presence, and JPEG degradation, forcing the model to learn the semantic concept "this is a border" rather than memorising a specific colour value.
+
+### Overlay variants — `synthesize_overlays.py`
+
+| Folder | Description |
+|---|---|
+| `sfx_overlay/` | Korean SFX text composited on the initial render (RGB) |
+| `sfx_overlay_cleaned/` | Same SFX positions on the cleaned artwork (RGBA — training pair) |
+| `bubble_overlay/` | Speech bubbles / text boxes on the initial render (RGB) |
+| `bubble_overlay_cleaned/` | Same bubble positions on the cleaned artwork (RGBA — training pair) |
+
+Overlays are placed per detected panel with a fixed seed (deterministic from episode + page + variant tag), so `sfx_overlay/` and `sfx_overlay_cleaned/` are pixel-aligned training pairs. Placement is ~75% edge (straddling the frame line) and ~25% background corner.
 
 ![All 9 variants](assets/variants_grid.png)
 
@@ -30,29 +112,73 @@ Each processed page produces **9 variants** stored as `data/synthesized/<episode
 
 ![Variants demo](assets/variants_demo.gif)
 
-### Variant reference
+---
 
-| Folder | Role | Description |
-|---|---|---|
-| `transparent/` | **Target** | Clean artwork, borders fully transparent |
-| `white/` | Input | Raw merged image from the KRA file — white borders intact |
-| `black/` | Input | Artwork composited on solid black background |
-| `framed/` | Input | White background + 1px black outline at each panel edge |
-| `jpeg/` | Input | White borders + heavy JPEG compression (quality 15) |
-| `framed_jpeg/` | Input | White bg + 1px frame + JPEG — hardest case, all artifacts combined |
-| `transparent_framed/` | Input | Transparent + 1px black outline at each panel edge |
-| `transparent_jpeg/` | Input | Transparent + JPEG artifacts on RGB channels, alpha preserved |
-| `transparent_framed_jpeg/` | Input | Transparent + 1px frame + JPEG — frame loses true black, as in real manhwa scans |
+## How to run
 
-#### Why so many variants?
+```bash
+pip install -r requirements.txt
 
-Real-world manhwa chapters are distributed as JPEG images where black frame lines are never true `#000000` — JPEG compression bleeds colour into adjacent pixels. A model trained only on clean white-border inputs will fail on these. The matrix of variants covers every combination of background style, frame presence, and JPEG degradation, forcing the model to learn the semantic concept "this is a border" rather than memorising a specific colour value.
+# 1. Download art-pack zips (~17 GB)
+python3 src/download_chapters.py
+
+# 2. Extract .kra files from zips
+python3 src/extract_kra.py
+
+# 3. Detect and remove border layers → saves initial/ + cleaned/ renders
+python3 src/process_kra.py
+
+# Optional: delete intermediates (zips and kra no longer needed)
+rm -rf data/preprocessing/zips data/preprocessing/kra
+
+# 4. Generate 9 base training variants
+python3 src/synthesize_dataset.py all
+
+# 5. Generate SFX and bubble overlay assets (once)
+python3 src/make_sfx.py
+python3 src/make_bubbles.py
+
+# 6. Generate 4 overlay variants
+python3 src/synthesize_overlays.py all
+```
+
+To reprocess only files that errored:
+```bash
+python3 src/process_kra.py --retry-errors
+```
+
+To process a specific episode only:
+```bash
+python3 src/synthesize_dataset.py ep03
+python3 src/synthesize_overlays.py ep03
+```
 
 ---
 
-## Version history & decisions
+## Dataloader pairing
 
-Each version reflects a specific problem encountered and the decision made to solve it.
+All variant folders share the same filenames, mapping 1:1 to the cleaned target:
+
+```python
+renders = Path("data/preprocessing/renders")
+dataset = Path("data/dataset")
+episode = "ep01_Potion-of-Flight"
+page    = "E01P01.png"
+
+input_path  = dataset  / episode / "framed_jpeg" / page
+target_path = renders  / episode / "cleaned"     / page
+```
+
+For overlay pairs the cleaned variant is inside dataset/ itself:
+```python
+input_path  = dataset / episode / "sfx_overlay"         / page
+target_path = dataset / episode / "sfx_overlay_cleaned"  / page
+```
+
+---
+
+## Version history
+
 Version scheme: `v1.X.Y` — `X` is the feature group, `Y` is the iteration within it.
 
 ### v1.0.0 · Initial setup
@@ -70,83 +196,46 @@ Split monolithic script into `extract_kra.py` and `process_kra.py`. Unified all 
 Krita tile data uses LZF compression with a 1-byte version prefix before the compressed payload. Feeding the full buffer to the decompressor caused failures across 19 files. Fix: skip byte 0 before decompressing.
 
 ### v1.3.1 · Grouplayer border support + `--retry-errors`
-Some episodes wrap the border layer in a group. Added `build_group_mask` which composites all descendant paintlayers and thresholds on alpha (group border strokes are black, not white — so the white-pixel check used for raster layers would return empty masks). Added `--retry-errors` flag to reprocess only failed files without rerunning the full ~18-minute pipeline.
+Some episodes wrap the border layer in a group. Added `build_group_mask` which composites all descendant paintlayers and thresholds on alpha (group border strokes are black, not white — so the white-pixel check used for raster layers would return empty masks). Added `--retry-errors` flag to reprocess only failed files without rerunning the full pipeline.
 
 ### v1.3.2 · Skip empty border masks
-E28P00 has an SVG border layer with coordinates in global document space (Y=7334–27067) far outside the 795px canvas viewport. The resulting mask has zero coverage. Rather than raising an error, treat it as skipped — consistent with all other P00 (cover) files which have no border layer.
+E28P00 has an SVG border layer with coordinates in global document space far outside the canvas viewport. The resulting mask has zero coverage. Rather than raising an error, treat it as skipped — consistent with all other P00 (cover) files which have no border layer.
 
 ### v1.4.0 – v1.4.1 · Blacklist + synthesize_dataset
-E03P02 has unclipped artwork bleed: the flat merged image exposes artwork from adjacent panels in the gutter bands. This is unfixable without re-rendering individual panel layer groups from the KRA source. Added `BLACKLISTED` dict in `process_kra.py` — blacklisted pages are skipped and any existing output PNG is deleted.
-
-Introduced `synthesize_dataset.py` to generate the multi-variant training set. All scripts moved to `src/`.
+E03P02 has unclipped artwork bleed: the flat merged image exposes artwork from adjacent panels in the gutter bands. Added `BLACKLISTED` dict in `process_kra.py`. Introduced `synthesize_dataset.py` to generate the multi-variant training set. All scripts moved to `src/`.
 
 ### v1.4.2 · Complete input matrix
-Added `framed_jpeg` and the three `transparent_*` variants to cover every combination of background, frame, and JPEG degradation. Added tqdm progress bar.
+Added `framed_jpeg` and transparent variants to cover every combination of background, frame, and JPEG degradation.
 
-### v1.5.0 · README and visual assets
-README with pipeline overview, variant table, version history, and usage instructions. Visual assets: `pipeline.png` (before/after), `variants_demo.gif` (animated), `variants_grid.png` (3×3 grid). Special thanks to David Revoy.
+### v1.5.0 – v1.5.3 · README and visual assets
+README with pipeline overview, variant table, version history, and usage instructions. Visual assets: `pipeline.png`, `variants_demo.gif`, `variants_grid.png`. `make_assets.py` added to `src/`. Language stats fixed via `.gitattributes`.
 
-### v1.5.1 – v1.5.3 · Asset refinements
-Single panel per frame (first panel detected from transparent alpha). GIF zoom inset moved to bottom-right corner, source zone straddling the artwork/border boundary. Variants grid updated with per-cell zoom insets. `make_assets.py` moved to `src/`. Language stats fixed via `.gitattributes`.
+### v1.5.4 · Version history update
 
----
+### v1.6.0 · SFX and bubble overlay synthesis pipeline
+Added `src/make_sfx.py` (266 Korean SFX overlays, 7 style variants each) and `src/make_bubbles.py` (11 speech bubble shapes). Added `src/synthesize_overlays.py` which applies overlays per detected panel with panel-aware edge placement and deterministic seeding.
 
-## How to run
+### v1.6.1 · Gradient border variants
+Added `gradient_border/` and `gradient_border_inv/` — border pixels filled by a linear gradient spanning the full page height.
 
-```bash
-pip install -r requirements.txt
+### v1.6.2 · Full-page gradient fix
+Initial gradient was computed per-strip, making each narrow gutter too short to show a visible sweep. Fixed by using absolute Y position across the full page height.
 
-# 1. Download source files
-python3 src/download_chapters.py
+### v1.6.3 · Transparent overlay variants
+Added `sfx_overlay_transparent/` and `bubble_overlay_transparent/` as RGBA training targets for the overlay variants. Overlay positions are planned once and applied to both the initial and cleaned bases with the same seed, ensuring pixel-aligned pairs.
 
-# 2. Extract .kra archives
-python3 src/extract_kra.py
+### v1.7.0 · Data directory restructure
+Separated preprocessing intermediates from the final dataset:
+- `data/preprocessing/renders/` — canonical renders (initial + cleaned per episode)
+- `data/dataset/` — all ML training variants
+- `synthesize_dataset.py` now reads from `renders/` directly; no KRA files needed at synthesis time.
+- `process_kra.py` saves both initial and cleaned renders in a single pass.
 
-# 3. Process: detect and remove border layers
-python3 src/process_kra.py
+### v1.7.1 · Rename renders and drop intermediates
+`white/` → `initial/`, `transparent/` → `cleaned/`. "Initial" is the raw merged render (borders intact, any colour); "cleaned" is the border-removed transparent artwork. Dropped `preprocessing/kra/` and `preprocessing/zips/` — 37 GB freed, dataset generation runs entirely from `renders/`.
 
-# 4. Generate training variants
-python3 src/synthesize_dataset.py all
-```
-
-To reprocess only files that errored:
-```bash
-python3 src/process_kra.py --retry-errors
-```
-
-To synthesize a specific episode:
-```bash
-python3 src/synthesize_dataset.py ep03
-```
-
----
-
-## Output structure
-
-```
-data/
-  processed_png/
-    ep01_Potion-of-Flight/
-      E01P01.png          ← clean transparent output
-      ...
-  synthesized/
-    ep01_Potion-of-Flight/
-      transparent/E01P01.png
-      white/E01P01.png
-      black/E01P01.png
-      framed/E01P01.png
-      jpeg/E01P01.png
-      framed_jpeg/E01P01.png
-      transparent_framed/E01P01.png
-      transparent_jpeg/E01P01.png
-      transparent_framed_jpeg/E01P01.png
-```
-
-All variant folders map 1:1 by filename to `transparent/`, making dataloader pairing trivial:
-```python
-input_path  = Path("data/synthesized/ep01_Potion-of-Flight/framed_jpeg/E01P01.png")
-target_path = Path("data/synthesized/ep01_Potion-of-Flight/transparent/E01P01.png")
-```
+### v1.7.2 · Dataset variant rename
+`transparent_*` prefix replaced with `_cleaned` suffix so each input variant sorts alphabetically adjacent to its cleaned pair (`framed` / `framed_cleaned`, `jpeg` / `jpeg_cleaned`, etc.). Same rename for overlay pairs.
 
 ---
 
