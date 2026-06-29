@@ -2,14 +2,14 @@
 Apply SFX and bubble overlays to synthesized panel frames.
 
 Creates four new input variants per episode:
-  sfx_overlay/               — Korean SFX on white panel (RGB)
-  sfx_overlay_transparent/   — same overlays on transparent artwork (RGBA)
-  bubble_overlay/            — speech bubbles/boxes on white panel (RGB)
-  bubble_overlay_transparent/— same overlays on transparent artwork (RGBA)
+  sfx_overlay/               — Korean SFX on initial render (RGB)
+  sfx_overlay_transparent/   — same overlays on cleaned artwork (RGBA)
+  bubble_overlay/            — speech bubbles/boxes on initial render (RGB)
+  bubble_overlay_transparent/— same overlays on cleaned artwork (RGBA)
 
-Overlay positions are identical between white and transparent pairs
+Overlay positions are identical between initial and cleaned pairs
 (same seed, same plan) so they form clean training pairs.
-Target for all four remains transparent/ (clean artwork, no overlays).
+Target for all four is preprocessing/renders/{ep}/cleaned/ (no overlays).
 
 Placement strategy (per detected panel):
   ~75% edge   — overlay straddles the panel's top or bottom frame line
@@ -172,15 +172,15 @@ def flatten_white(img):
 def process_episode(ep_name, sfx_files, bub_files):
     renders_ep  = RENDERS_DIR / ep_name
     dataset_ep  = DATASET     / ep_name
-    white_dir   = renders_ep / "white"
-    trans_dir   = renders_ep / "transparent"
-    if not white_dir.exists() or not trans_dir.exists():
-        print(f"  skip {ep_name}: missing renders white/ or transparent/")
+    initial_dir = renders_ep / "initial"
+    cleaned_dir = renders_ep / "cleaned"
+    if not initial_dir.exists() or not cleaned_dir.exists():
+        print(f"  skip {ep_name}: missing renders initial/ or cleaned/")
         return
 
-    pages = sorted(white_dir.glob("*.png"))
+    pages = sorted(initial_dir.glob("*.png"))
     if not pages:
-        print(f"  skip {ep_name}: no pages in renders/white/")
+        print(f"  skip {ep_name}: no pages in renders/initial/")
         return
 
     print(f"\n{ep_name}  ({len(pages)} pages)")
@@ -189,36 +189,36 @@ def process_episode(ep_name, sfx_files, bub_files):
         (dataset_ep / variant).mkdir(parents=True, exist_ok=True)
 
     for page_path in pages:
-        fname  = page_path.name
-        t_path = trans_dir / fname
-        if not t_path.exists():
-            print(f"    skip {fname}: no transparent render")
+        fname      = page_path.name
+        cleaned_path = cleaned_dir / fname
+        if not cleaned_path.exists():
+            print(f"    skip {fname}: no cleaned render")
             continue
 
-        panels, pw, ph = detect_panels(t_path)
+        panels, pw, ph = detect_panels(cleaned_path)
         if not panels:
             print(f"    skip {fname}: no panels detected")
             continue
 
-        panel_white = Image.open(page_path).convert("RGBA")
-        panel_trans = Image.open(t_path).convert("RGBA")
+        panel_initial = Image.open(page_path).convert("RGBA")
+        panel_cleaned = Image.open(cleaned_path).convert("RGBA")
 
         if sfx_files:
             plan = _plan_overlays(sfx_files, panels, pw,
                                   random.Random(_seed(ep_name, fname, "sfx")),
                                   SFX_PROB, EDGE_PROB)
-            flatten_white(apply_plan(panel_white, plan)).save(
+            flatten_white(apply_plan(panel_initial, plan)).save(
                 dataset_ep / "sfx_overlay" / fname)
-            apply_plan(panel_trans, plan).save(
+            apply_plan(panel_cleaned, plan).save(
                 dataset_ep / "sfx_overlay_transparent" / fname)
 
         if bub_files:
             plan = _plan_overlays(bub_files, panels, pw,
                                   random.Random(_seed(ep_name, fname, "bub")),
                                   BUB_PROB, EDGE_PROB)
-            flatten_white(apply_plan(panel_white, plan)).save(
+            flatten_white(apply_plan(panel_initial, plan)).save(
                 dataset_ep / "bubble_overlay" / fname)
-            apply_plan(panel_trans, plan).save(
+            apply_plan(panel_cleaned, plan).save(
                 dataset_ep / "bubble_overlay_transparent" / fname)
 
         print(f"    {fname}  ({len(panels)} panels)")

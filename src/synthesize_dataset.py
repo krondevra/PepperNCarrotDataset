@@ -124,28 +124,28 @@ VARIANTS = (
 )
 
 
-def process_page(transparent_path: Path, white_path: Path, ep_dataset_dir: Path):
-    filename = transparent_path.name
-    transparent = Image.open(transparent_path).convert("RGBA")
+def process_page(cleaned_path: Path, initial_path: Path, ep_dataset_dir: Path):
+    filename  = cleaned_path.name
+    cleaned   = Image.open(cleaned_path).convert("RGBA")
 
     for d in VARIANTS:
         (ep_dataset_dir / d).mkdir(parents=True, exist_ok=True)
 
-    make_black_variant(transparent).save(ep_dataset_dir / "black" / filename, "PNG")
-    make_framed_variant(transparent).save(ep_dataset_dir / "framed" / filename, "PNG")
-    make_transparent_framed_variant(transparent).save(ep_dataset_dir / "transparent_framed" / filename, "PNG")
-    make_transparent_jpeg_variant(transparent).save(ep_dataset_dir / "transparent_jpeg" / filename, "PNG")
-    make_transparent_framed_jpeg_variant(transparent).save(ep_dataset_dir / "transparent_framed_jpeg" / filename, "PNG")
-    make_gradient_border_variant(transparent, invert=False).save(ep_dataset_dir / "gradient_border" / filename, "PNG")
-    make_gradient_border_variant(transparent, invert=True).save(ep_dataset_dir / "gradient_border_inv" / filename, "PNG")
+    make_black_variant(cleaned).save(ep_dataset_dir / "black" / filename, "PNG")
+    make_framed_variant(cleaned).save(ep_dataset_dir / "framed" / filename, "PNG")
+    make_transparent_framed_variant(cleaned).save(ep_dataset_dir / "transparent_framed" / filename, "PNG")
+    make_transparent_jpeg_variant(cleaned).save(ep_dataset_dir / "transparent_jpeg" / filename, "PNG")
+    make_transparent_framed_jpeg_variant(cleaned).save(ep_dataset_dir / "transparent_framed_jpeg" / filename, "PNG")
+    make_gradient_border_variant(cleaned, invert=False).save(ep_dataset_dir / "gradient_border" / filename, "PNG")
+    make_gradient_border_variant(cleaned, invert=True).save(ep_dataset_dir / "gradient_border_inv" / filename, "PNG")
 
-    if not white_path.exists():
-        print(f"  {filename}: white render missing — jpeg/framed_jpeg skipped")
+    if not initial_path.exists():
+        print(f"  {filename}: initial render missing — jpeg/framed_jpeg skipped")
         return
 
-    merged = Image.open(white_path).convert("RGBA")
-    make_jpeg_variant(merged).save(ep_dataset_dir / "jpeg" / filename, "PNG")
-    make_framed_jpeg_variant(transparent, merged).save(ep_dataset_dir / "framed_jpeg" / filename, "PNG")
+    initial = Image.open(initial_path).convert("RGBA")
+    make_jpeg_variant(initial).save(ep_dataset_dir / "jpeg" / filename, "PNG")
+    make_framed_jpeg_variant(cleaned, initial).save(ep_dataset_dir / "framed_jpeg" / filename, "PNG")
 
 
 def main():
@@ -182,19 +182,19 @@ def main():
 
     all_pages = []
     for ep_dir in ep_dirs:
-        trans_dir = ep_dir / "transparent"
-        white_dir = ep_dir / "white"
-        if not trans_dir.exists():
-            print(f"Warning: {ep_dir.name} has no transparent/ — skipping")
+        cleaned_dir = ep_dir / "cleaned"
+        initial_dir = ep_dir / "initial"
+        if not cleaned_dir.exists():
+            print(f"Warning: {ep_dir.name} has no cleaned/ — skipping")
             continue
-        for png in sorted(trans_dir.glob("*.png")):
-            all_pages.append((ep_dir, png, white_dir / png.name))
+        for png in sorted(cleaned_dir.glob("*.png")):
+            all_pages.append((ep_dir, png, initial_dir / png.name))
 
     print(f"Processing {len(all_pages)} pages across {len(ep_dirs)} episode(s) ...")
-    for ep_dir, transparent_path, white_path in all_pages:
+    for ep_dir, cleaned_path, initial_path in all_pages:
         ep_dataset_dir = DATASET_DIR / ep_dir.name
-        print(f"  {ep_dir.name}/{transparent_path.name}")
-        process_page(transparent_path, white_path, ep_dataset_dir)
+        print(f"  {ep_dir.name}/{cleaned_path.name}")
+        process_page(cleaned_path, initial_path, ep_dataset_dir)
 
     print("\nDone.")
 

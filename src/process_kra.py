@@ -315,7 +315,7 @@ def load_merged_image(zip_file) -> Image.Image:
 def build_output_path(kra_path: Path) -> Path:
     relative = kra_path.relative_to(TMP_DIR)
     ep_name  = relative.parts[0]
-    return RENDERS_DIR / ep_name / "transparent" / f"{relative.stem}.png"
+    return RENDERS_DIR / ep_name / "cleaned" / f"{relative.stem}.png"
 
 
 # ---------------------------------------------------------------------------
@@ -407,9 +407,9 @@ def process_kra(kra_path: Path) -> dict:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         result.save(output_path, "PNG")
 
-        white_path = output_path.parent.parent / "white" / output_path.name
-        white_path.parent.mkdir(parents=True, exist_ok=True)
-        image.save(white_path, "PNG")
+        initial_path = output_path.parent.parent / "initial" / output_path.name
+        initial_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(initial_path, "PNG")
 
         return {
             "status": "saved",
