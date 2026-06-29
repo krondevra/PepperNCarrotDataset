@@ -184,8 +184,8 @@ def process_episode(ep_name, sfx_files, bub_files):
         return
 
     print(f"\n{ep_name}  ({len(pages)} pages)")
-    for variant in ("sfx_overlay", "sfx_overlay_transparent",
-                    "bubble_overlay", "bubble_overlay_transparent"):
+    for variant in ("sfx_overlay", "sfx_overlay_cleaned",
+                    "bubble_overlay", "bubble_overlay_cleaned"):
         (dataset_ep / variant).mkdir(parents=True, exist_ok=True)
 
     for page_path in pages:
@@ -210,7 +210,7 @@ def process_episode(ep_name, sfx_files, bub_files):
             flatten_white(apply_plan(panel_initial, plan)).save(
                 dataset_ep / "sfx_overlay" / fname)
             apply_plan(panel_cleaned, plan).save(
-                dataset_ep / "sfx_overlay_transparent" / fname)
+                dataset_ep / "sfx_overlay_cleaned" / fname)
 
         if bub_files:
             plan = _plan_overlays(bub_files, panels, pw,
@@ -219,7 +219,7 @@ def process_episode(ep_name, sfx_files, bub_files):
             flatten_white(apply_plan(panel_initial, plan)).save(
                 dataset_ep / "bubble_overlay" / fname)
             apply_plan(panel_cleaned, plan).save(
-                dataset_ep / "bubble_overlay_transparent" / fname)
+                dataset_ep / "bubble_overlay_cleaned" / fname)
 
         print(f"    {fname}  ({len(panels)} panels)")
 
