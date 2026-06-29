@@ -28,9 +28,10 @@ import numpy as np
 from pathlib import Path
 from PIL import Image
 
-SYNTH   = Path("data/synthesized")
-SFX_DIR = Path("data/overlays/sfx")
-BUB_DIR = Path("data/overlays/bubbles")
+DATASET     = Path("data/dataset")
+RENDERS_DIR = Path("data/preprocessing/renders")
+SFX_DIR     = Path("data/overlays/sfx")
+BUB_DIR     = Path("data/overlays/bubbles")
 
 # Probability that a given panel receives an overlay
 SFX_PROB = 0.80   # most panels get an SFX
@@ -168,28 +169,30 @@ def flatten_white(img):
     return bg.convert("RGB")
 
 
-def process_episode(ep_dir, sfx_files, bub_files):
-    src_dir   = ep_dir / "white"
-    trans_dir = ep_dir / "transparent"
-    if not src_dir.exists() or not trans_dir.exists():
-        print(f"  skip {ep_dir.name}: missing white/ or transparent/")
+def process_episode(ep_name, sfx_files, bub_files):
+    renders_ep  = RENDERS_DIR / ep_name
+    dataset_ep  = DATASET     / ep_name
+    white_dir   = renders_ep / "white"
+    trans_dir   = renders_ep / "transparent"
+    if not white_dir.exists() or not trans_dir.exists():
+        print(f"  skip {ep_name}: missing renders white/ or transparent/")
         return
 
-    pages = sorted(src_dir.glob("*.png"))
+    pages = sorted(white_dir.glob("*.png"))
     if not pages:
-        print(f"  skip {ep_dir.name}: no pages")
+        print(f"  skip {ep_name}: no pages in renders/white/")
         return
 
-    print(f"\n{ep_dir.name}  ({len(pages)} pages)")
+    print(f"\n{ep_name}  ({len(pages)} pages)")
     for variant in ("sfx_overlay", "sfx_overlay_transparent",
                     "bubble_overlay", "bubble_overlay_transparent"):
-        (ep_dir / variant).mkdir(exist_ok=True)
+        (dataset_ep / variant).mkdir(parents=True, exist_ok=True)
 
     for page_path in pages:
         fname  = page_path.name
         t_path = trans_dir / fname
         if not t_path.exists():
-            print(f"    skip {fname}: no transparent variant")
+            print(f"    skip {fname}: no transparent render")
             continue
 
         panels, pw, ph = detect_panels(t_path)
@@ -202,21 +205,21 @@ def process_episode(ep_dir, sfx_files, bub_files):
 
         if sfx_files:
             plan = _plan_overlays(sfx_files, panels, pw,
-                                  random.Random(_seed(ep_dir.name, fname, "sfx")),
+                                  random.Random(_seed(ep_name, fname, "sfx")),
                                   SFX_PROB, EDGE_PROB)
             flatten_white(apply_plan(panel_white, plan)).save(
-                ep_dir / "sfx_overlay" / fname)
+                dataset_ep / "sfx_overlay" / fname)
             apply_plan(panel_trans, plan).save(
-                ep_dir / "sfx_overlay_transparent" / fname)       # RGBA PNG
+                dataset_ep / "sfx_overlay_transparent" / fname)
 
         if bub_files:
             plan = _plan_overlays(bub_files, panels, pw,
-                                  random.Random(_seed(ep_dir.name, fname, "bub")),
+                                  random.Random(_seed(ep_name, fname, "bub")),
                                   BUB_PROB, EDGE_PROB)
             flatten_white(apply_plan(panel_white, plan)).save(
-                ep_dir / "bubble_overlay" / fname)
+                dataset_ep / "bubble_overlay" / fname)
             apply_plan(panel_trans, plan).save(
-                ep_dir / "bubble_overlay_transparent" / fname)     # RGBA PNG
+                dataset_ep / "bubble_overlay_transparent" / fname)
 
         print(f"    {fname}  ({len(panels)} panels)")
 
@@ -239,18 +242,18 @@ def main():
     print(f"Loaded {len(sfx_files)} SFX + {len(bub_files)} bubble overlays.")
 
     if arg == "all":
-        episodes = sorted(d for d in SYNTH.iterdir() if d.is_dir())
+        episodes = sorted(d.name for d in RENDERS_DIR.iterdir() if d.is_dir())
     else:
-        episodes = sorted(d for d in SYNTH.iterdir()
+        episodes = sorted(d.name for d in RENDERS_DIR.iterdir()
                           if d.is_dir() and arg in d.name)
 
     if not episodes:
-        print(f"No episodes matching '{arg}' in {SYNTH}")
+        print(f"No episodes matching '{arg}' in {RENDERS_DIR}")
         sys.exit(1)
 
     print(f"Processing {len(episodes)} episode(s) ...")
-    for ep in episodes:
-        process_episode(ep, sfx_files, bub_files)
+    for ep_name in episodes:
+        process_episode(ep_name, sfx_files, bub_files)
 
     print("\nDone.")
 

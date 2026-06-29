@@ -11,7 +11,7 @@ from tqdm import tqdm
 MAIN_URL = "https://www.peppercarrot.com/en/webcomics/peppercarrot.html"
 BASE_URL = "https://www.peppercarrot.com"
 
-OUTPUT_DIR = Path("data/peppercarrot_zips")
+OUTPUT_DIR = Path("data/preprocessing/zips")
 MAX_EPISODE = 39
 
 TIMEOUT = 30

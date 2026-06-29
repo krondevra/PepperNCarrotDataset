@@ -11,8 +11,8 @@ import numpy as np
 from PIL import Image
 
 
-TMP_DIR = Path("data/kra_extracted")
-OUTPUT_DIR = Path("data/processed_png")
+TMP_DIR     = Path("data/preprocessing/kra")
+RENDERS_DIR = Path("data/preprocessing/renders")
 REPORT_DIR = Path("reports")
 
 ONLY_PAGE_KRA = True
@@ -314,7 +314,8 @@ def load_merged_image(zip_file) -> Image.Image:
 
 def build_output_path(kra_path: Path) -> Path:
     relative = kra_path.relative_to(TMP_DIR)
-    return OUTPUT_DIR / relative.parent / f"{relative.stem}.png"
+    ep_name  = relative.parts[0]
+    return RENDERS_DIR / ep_name / "transparent" / f"{relative.stem}.png"
 
 
 # ---------------------------------------------------------------------------
@@ -405,6 +406,10 @@ def process_kra(kra_path: Path) -> dict:
         output_path = build_output_path(kra_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         result.save(output_path, "PNG")
+
+        white_path = output_path.parent.parent / "white" / output_path.name
+        white_path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(white_path, "PNG")
 
         return {
             "status": "saved",
@@ -509,7 +514,7 @@ def main():
                         help="Re-process only files that errored in the last report")
     args = parser.parse_args()
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    RENDERS_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.retry_errors:

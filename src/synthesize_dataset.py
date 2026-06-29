@@ -1,84 +1,36 @@
 """
-Synthesize dataset variants from processed Pepper&Carrot pages.
+Synthesize dataset variants from preprocessed Pepper&Carrot renders.
 
-Eleven variants are produced per page:
+Source: data/preprocessing/renders/{episode}/transparent/ + white/
+Output: data/dataset/{episode}/{variant}/
 
-  transparent/              — clean artwork, transparent borders              (target)
-  white/                    — raw merged image, white borders intact          (input)
+Nine input variants are produced per page (white and transparent live in renders/):
+
   black/                    — artwork on solid black background               (input)
-  jpeg/                     — white borders + JPEG compression                (input)
+  jpeg/                     — white render + JPEG compression                 (input)
   framed/                   — white bg + 1px black panel outline              (input)
-  framed_jpeg/              — white bg + 1px frame + JPEG compression;
-                              hardest case: borders, frame, and noise         (input)
+  framed_jpeg/              — white bg + 1px frame + JPEG compression         (input)
   transparent_framed/       — transparent + 1px black panel outline           (input)
   transparent_jpeg/         — transparent + JPEG artifacts on RGB, alpha kept (input)
-  transparent_framed_jpeg/  — transparent + 1px frame + JPEG compression;
-                              frame loses true black as in real manhwa scans  (input)
-  gradient_border/          — borders filled black→white across full page height  (input)
-  gradient_border_inv/      — borders filled white→black across full page height  (input)
+  transparent_framed_jpeg/  — transparent + 1px frame + JPEG compression      (input)
+  gradient_border/          — borders filled black→white across full height   (input)
+  gradient_border_inv/      — borders filled white→black across full height   (input)
 """
 
 import argparse
 import io
-import json
-import zipfile
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
-from tqdm import tqdm
 
-from process_kra import (
-    TMP_DIR,
-    OUTPUT_DIR,
-    REPORT_DIR,
-    get_krita_info,
-    choose_border_layer,
-    build_raster_mask,
-    build_svg_mask,
-    build_group_mask,
-    load_merged_image,
-    find_svg,
-)
+RENDERS_DIR = Path("data/preprocessing/renders")
+DATASET_DIR = Path("data/dataset")
 
-SYNTH_DIR = Path("data/synthesized")
-JPEG_QUALITY = 15  # aggressive — artifacts visible under careful inspection
-
-
-def load_kra_data(kra_path: Path):
-    """Return (mask_L, merged_RGBA) for the given KRA file, or (None, None) on failure."""
-    with zipfile.ZipFile(kra_path) as z:
-        width, height, layers, xml_root = get_krita_info(z)
-        border_layer = choose_border_layer(layers)
-        if border_layer is None:
-            return None, None
-
-        nodetype = border_layer.get("nodetype", "")
-        filename = border_layer.get("filename", "")
-
-        if nodetype == "shapelayer":
-            svg = find_svg(z, filename)
-            if not svg:
-                return None, None
-            mask = build_svg_mask(svg, width, height)
-        elif nodetype == "paintlayer":
-            mask = build_raster_mask(z, border_layer, width, height)
-        elif nodetype == "grouplayer":
-            mask = build_group_mask(z, xml_root, filename, width, height)
-        else:
-            return None, None
-
-        merged = load_merged_image(z).convert("RGBA")
-
-    return mask, merged
+JPEG_QUALITY = 15
 
 
 def panel_edge(transparent: Image.Image) -> np.ndarray:
-    """
-    Return a boolean mask of the 1px ring of content pixels at the panel boundary
-    (outermost artwork pixels adjacent to the transparent border).
-    Drawing black here guarantees no gap between artwork and frame.
-    """
     alpha = np.array(transparent.getchannel("A"))
     border = Image.fromarray((alpha == 0).astype(np.uint8) * 255)
     dilated = np.array(border.filter(ImageFilter.MaxFilter(3))) > 0
@@ -86,14 +38,12 @@ def panel_edge(transparent: Image.Image) -> np.ndarray:
 
 
 def make_black_variant(transparent: Image.Image) -> Image.Image:
-    """Composite artwork onto a solid black background."""
     bg = Image.new("RGBA", transparent.size, (0, 0, 0, 255))
     bg.alpha_composite(transparent)
     return bg
 
 
 def make_jpeg_variant(merged: Image.Image) -> Image.Image:
-    """White-border image with heavy JPEG compression to introduce visible artifacts."""
     buf = io.BytesIO()
     merged.convert("RGB").save(buf, format="JPEG", quality=JPEG_QUALITY)
     buf.seek(0)
@@ -101,7 +51,6 @@ def make_jpeg_variant(merged: Image.Image) -> Image.Image:
 
 
 def make_framed_variant(transparent: Image.Image) -> Image.Image:
-    """Artwork on white background with a 1px black outline at each panel boundary."""
     bg = Image.new("RGBA", transparent.size, (255, 255, 255, 255))
     bg.alpha_composite(transparent)
     arr = np.array(bg)
@@ -110,14 +59,12 @@ def make_framed_variant(transparent: Image.Image) -> Image.Image:
 
 
 def make_transparent_framed_variant(transparent: Image.Image) -> Image.Image:
-    """Transparent PNG with a 1px black outline at each panel boundary, no white fill."""
     arr = np.array(transparent.copy())
     arr[panel_edge(transparent)] = [0, 0, 0, 255]
     return Image.fromarray(arr)
 
 
 def make_transparent_jpeg_variant(transparent: Image.Image) -> Image.Image:
-    """Transparent PNG with JPEG compression artifacts on the RGB channels, alpha preserved."""
     alpha = transparent.getchannel("A")
     buf = io.BytesIO()
     transparent.convert("RGB").save(buf, format="JPEG", quality=JPEG_QUALITY)
@@ -128,7 +75,6 @@ def make_transparent_jpeg_variant(transparent: Image.Image) -> Image.Image:
 
 
 def make_framed_jpeg_variant(transparent: Image.Image, merged: Image.Image) -> Image.Image:
-    """White-border image with 1px black frame drawn first, then JPEG compressed."""
     arr = np.array(merged.convert("RGB"), dtype=np.uint8)
     arr[panel_edge(transparent)] = [0, 0, 0]
     buf = io.BytesIO()
@@ -139,22 +85,19 @@ def make_framed_jpeg_variant(transparent: Image.Image, merged: Image.Image) -> I
 
 def make_gradient_border_variant(transparent: Image.Image, invert: bool = False) -> Image.Image:
     """
-    Artwork with border/gutter pixels filled by a single linear gradient that
-    spans the full page height: pure black at top → pure white at bottom
-    (invert=False), or white→black (invert=True).
-    Every border pixel uses its absolute Y position so the sweep is visible
-    across the entire page, not just within each narrow gutter strip.
+    Border pixels filled by a single linear gradient spanning the full page height:
+    black→white (invert=False) or white→black (invert=True).
     """
     alpha  = np.array(transparent.getchannel("A"))
     H, W   = alpha.shape
     border = alpha == 0
 
-    t       = np.linspace(0.0, 1.0, H, dtype=np.float32)
+    t = np.linspace(0.0, 1.0, H, dtype=np.float32)
     if invert:
         t = 1.0 - t
-    grad_2d   = np.tile((t * 255).astype(np.uint8)[:, np.newaxis], (1, W))
+    grad_2d = np.tile((t * 255).astype(np.uint8)[:, np.newaxis], (1, W))
 
-    result          = np.array(transparent.copy())
+    result = np.array(transparent.copy())
     result[border, 0] = grad_2d[border]
     result[border, 1] = grad_2d[border]
     result[border, 2] = grad_2d[border]
@@ -163,12 +106,7 @@ def make_gradient_border_variant(transparent: Image.Image, invert: bool = False)
 
 
 def make_transparent_framed_jpeg_variant(transparent: Image.Image) -> Image.Image:
-    """
-    Transparent + 1px black frame + JPEG compression on RGB.
-    The frame loses true black due to JPEG artifacts, matching real manhwa scan behaviour.
-    """
     alpha = transparent.getchannel("A")
-    # Draw the frame on the RGB, then compress — frame pixels bleed into near-black
     arr = np.array(transparent.convert("RGB"), dtype=np.uint8)
     arr[panel_edge(transparent)] = [0, 0, 0]
     buf = io.BytesIO()
@@ -179,41 +117,40 @@ def make_transparent_framed_jpeg_variant(transparent: Image.Image) -> Image.Imag
     return compressed_rgb
 
 
-def process_page(kra_path: Path, processed_png: Path, synth_ep_dir: Path):
-    stem = processed_png.stem
-    filename = f"{stem}.png"
+VARIANTS = (
+    "black", "jpeg", "framed", "framed_jpeg",
+    "transparent_framed", "transparent_jpeg", "transparent_framed_jpeg",
+    "gradient_border", "gradient_border_inv",
+)
 
-    transparent = Image.open(processed_png).convert("RGBA")
 
-    for d in ("transparent", "white", "black", "jpeg", "framed", "framed_jpeg",
-              "transparent_framed", "transparent_jpeg", "transparent_framed_jpeg",
-              "gradient_border", "gradient_border_inv"):
-        (synth_ep_dir / d).mkdir(parents=True, exist_ok=True)
+def process_page(transparent_path: Path, white_path: Path, ep_dataset_dir: Path):
+    filename = transparent_path.name
+    transparent = Image.open(transparent_path).convert("RGBA")
 
-    transparent.save(synth_ep_dir / "transparent" / filename, "PNG")
-    make_black_variant(transparent).save(synth_ep_dir / "black" / filename, "PNG")
-    make_framed_variant(transparent).save(synth_ep_dir / "framed" / filename, "PNG")
-    make_transparent_framed_variant(transparent).save(synth_ep_dir / "transparent_framed" / filename, "PNG")
-    make_transparent_jpeg_variant(transparent).save(synth_ep_dir / "transparent_jpeg" / filename, "PNG")
-    make_transparent_framed_jpeg_variant(transparent).save(synth_ep_dir / "transparent_framed_jpeg" / filename, "PNG")
-    make_gradient_border_variant(transparent, invert=False).save(synth_ep_dir / "gradient_border" / filename, "PNG")
-    make_gradient_border_variant(transparent, invert=True).save(synth_ep_dir / "gradient_border_inv" / filename, "PNG")
+    for d in VARIANTS:
+        (ep_dataset_dir / d).mkdir(parents=True, exist_ok=True)
 
-    mask, merged = load_kra_data(kra_path)
-    if mask is None:
-        print(f"  {stem}: mask unavailable — white/jpeg/framed_jpeg variants skipped")
+    make_black_variant(transparent).save(ep_dataset_dir / "black" / filename, "PNG")
+    make_framed_variant(transparent).save(ep_dataset_dir / "framed" / filename, "PNG")
+    make_transparent_framed_variant(transparent).save(ep_dataset_dir / "transparent_framed" / filename, "PNG")
+    make_transparent_jpeg_variant(transparent).save(ep_dataset_dir / "transparent_jpeg" / filename, "PNG")
+    make_transparent_framed_jpeg_variant(transparent).save(ep_dataset_dir / "transparent_framed_jpeg" / filename, "PNG")
+    make_gradient_border_variant(transparent, invert=False).save(ep_dataset_dir / "gradient_border" / filename, "PNG")
+    make_gradient_border_variant(transparent, invert=True).save(ep_dataset_dir / "gradient_border_inv" / filename, "PNG")
+
+    if not white_path.exists():
+        print(f"  {filename}: white render missing — jpeg/framed_jpeg skipped")
         return
 
-    merged.save(synth_ep_dir / "white" / filename, "PNG")
-    make_jpeg_variant(merged).save(synth_ep_dir / "jpeg" / filename, "PNG")
-    make_framed_jpeg_variant(transparent, merged).save(synth_ep_dir / "framed_jpeg" / filename, "PNG")
-
-    pass
+    merged = Image.open(white_path).convert("RGBA")
+    make_jpeg_variant(merged).save(ep_dataset_dir / "jpeg" / filename, "PNG")
+    make_framed_jpeg_variant(transparent, merged).save(ep_dataset_dir / "framed_jpeg" / filename, "PNG")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate dataset variants from processed Pepper&Carrot pages."
+        description="Generate dataset variants from preprocessed renders."
     )
     parser.add_argument(
         "episodes",
@@ -223,44 +160,43 @@ def main():
     args = parser.parse_args()
     targets = args.episodes or ["ep01"]
 
-    report_path = REPORT_DIR / "processing_report.json"
-    if not report_path.exists():
-        print("No processing report found — run process_kra.py first.")
+    if not RENDERS_DIR.exists():
+        print(f"Renders directory not found: {RENDERS_DIR}")
+        print("Run: python3 src/process_kra.py")
         return
-    with open(report_path) as f:
-        report = json.load(f)
-    saved_names = {r["kra_file"] for r in report if r["status"] == "saved"}
 
     if targets == ["all"]:
-        ep_dirs = sorted(d for d in OUTPUT_DIR.iterdir() if d.is_dir())
+        ep_dirs = sorted(d for d in RENDERS_DIR.iterdir() if d.is_dir())
     else:
         ep_dirs = []
         for t in targets:
-            matched = sorted(d for d in OUTPUT_DIR.iterdir() if d.is_dir() and d.name.startswith(t))
+            matched = sorted(d for d in RENDERS_DIR.iterdir()
+                             if d.is_dir() and d.name.startswith(t))
             if not matched:
-                print(f"Warning: no episode directory matching '{t}'")
+                print(f"Warning: no episode matching '{t}' in {RENDERS_DIR}")
             ep_dirs.extend(matched)
 
     if not ep_dirs:
-        print(f"No episode directories found in {OUTPUT_DIR}")
+        print(f"No episode directories found in {RENDERS_DIR}")
         return
 
     all_pages = []
     for ep_dir in ep_dirs:
-        for png in sorted(ep_dir.glob("*.png")):
-            kra_name = png.stem + ".kra"
-            if kra_name not in saved_names:
-                continue
-            kra_files = list(Path(TMP_DIR).rglob(kra_name))
-            if kra_files:
-                all_pages.append((ep_dir, kra_files[0], png))
+        trans_dir = ep_dir / "transparent"
+        white_dir = ep_dir / "white"
+        if not trans_dir.exists():
+            print(f"Warning: {ep_dir.name} has no transparent/ — skipping")
+            continue
+        for png in sorted(trans_dir.glob("*.png")):
+            all_pages.append((ep_dir, png, white_dir / png.name))
 
-    with tqdm(total=len(all_pages), unit="page") as bar:
-        for ep_dir, kra_path, png in all_pages:
-            synth_ep_dir = SYNTH_DIR / ep_dir.name
-            bar.set_description(f"{ep_dir.name}/{png.name}")
-            process_page(kra_path, png, synth_ep_dir)
-            bar.update(1)
+    print(f"Processing {len(all_pages)} pages across {len(ep_dirs)} episode(s) ...")
+    for ep_dir, transparent_path, white_path in all_pages:
+        ep_dataset_dir = DATASET_DIR / ep_dir.name
+        print(f"  {ep_dir.name}/{transparent_path.name}")
+        process_page(transparent_path, white_path, ep_dataset_dir)
+
+    print("\nDone.")
 
 
 if __name__ == "__main__":

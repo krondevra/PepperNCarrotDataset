@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-SYNTH  = Path("data/synthesized/ep01_Potion-of-Flight")
+SYNTH  = Path("data/dataset/ep01_Potion-of-Flight")
 ASSETS = Path("assets")
 ASSETS.mkdir(exist_ok=True)
 
