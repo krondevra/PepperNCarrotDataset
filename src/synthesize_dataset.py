@@ -14,8 +14,8 @@ Eleven variants are produced per page:
   transparent_jpeg/         — transparent + JPEG artifacts on RGB, alpha kept (input)
   transparent_framed_jpeg/  — transparent + 1px frame + JPEG compression;
                               frame loses true black as in real manhwa scans  (input)
-  gradient_border/          — border strips filled black→white gradient       (input)
-  gradient_border_inv/      — border strips filled white→black gradient       (input)
+  gradient_border/          — borders filled black→white across full page height  (input)
+  gradient_border_inv/      — borders filled white→black across full page height  (input)
 """
 
 import argparse
@@ -139,41 +139,22 @@ def make_framed_jpeg_variant(transparent: Image.Image, merged: Image.Image) -> I
 
 def make_gradient_border_variant(transparent: Image.Image, invert: bool = False) -> Image.Image:
     """
-    Artwork on gradient-filled borders.  Each horizontal gutter strip gets its own
-    gradient: black→white top-to-bottom (invert=False) or white→black (invert=True).
-    Content pixels are unchanged; only the transparent border regions are filled.
+    Artwork with border/gutter pixels filled by a single linear gradient that
+    spans the full page height: pure black at top → pure white at bottom
+    (invert=False), or white→black (invert=True).
+    Every border pixel uses its absolute Y position so the sweep is visible
+    across the entire page, not just within each narrow gutter strip.
     """
-    alpha     = np.array(transparent.getchannel("A"))
-    H, W      = alpha.shape
-    border    = alpha == 0
+    alpha  = np.array(transparent.getchannel("A"))
+    H, W   = alpha.shape
+    border = alpha == 0
 
-    # Detect horizontal border strips via central column scan
-    center      = alpha[:, W // 8 : 7 * W // 8]
-    is_content  = center.max(axis=1) > 0
-    grad_row    = np.ones(H, dtype=np.float32)   # default: white (1.0)
-    in_strip    = False
-    strip_start = 0
+    t       = np.linspace(0.0, 1.0, H, dtype=np.float32)
+    if invert:
+        t = 1.0 - t
+    grad_2d   = np.tile((t * 255).astype(np.uint8)[:, np.newaxis], (1, W))
 
-    def _fill(s, e):
-        length = max(e - s - 1, 1)
-        for y in range(s, e):
-            t = (y - s) / length           # 0.0 at strip top, 1.0 at strip bottom
-            grad_row[y] = 1.0 - t if invert else t
-
-    for i, has in enumerate(is_content):
-        if not has and not in_strip:
-            strip_start = i;  in_strip = True
-        elif has and in_strip:
-            _fill(strip_start, i);  in_strip = False
-    if in_strip:
-        _fill(strip_start, H)
-
-    # Build output: white bg + artwork + gradient on border pixels
     result          = np.array(transparent.copy())
-    result[border]  = [255, 255, 255, 255]          # clear border to white first
-
-    grad_vals  = (grad_row * 255).astype(np.uint8)
-    grad_2d    = np.tile(grad_vals[:, np.newaxis], (1, W))
     result[border, 0] = grad_2d[border]
     result[border, 1] = grad_2d[border]
     result[border, 2] = grad_2d[border]
