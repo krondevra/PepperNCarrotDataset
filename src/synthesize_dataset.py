@@ -1,7 +1,7 @@
 """
 Synthesize dataset variants from processed Pepper&Carrot pages.
 
-Nine variants are produced per page:
+Eleven variants are produced per page:
 
   transparent/              — clean artwork, transparent borders              (target)
   white/                    — raw merged image, white borders intact          (input)
@@ -14,6 +14,8 @@ Nine variants are produced per page:
   transparent_jpeg/         — transparent + JPEG artifacts on RGB, alpha kept (input)
   transparent_framed_jpeg/  — transparent + 1px frame + JPEG compression;
                               frame loses true black as in real manhwa scans  (input)
+  gradient_border/          — border strips filled black→white gradient       (input)
+  gradient_border_inv/      — border strips filled white→black gradient       (input)
 """
 
 import argparse
@@ -135,6 +137,50 @@ def make_framed_jpeg_variant(transparent: Image.Image, merged: Image.Image) -> I
     return Image.open(buf).copy().convert("RGBA")
 
 
+def make_gradient_border_variant(transparent: Image.Image, invert: bool = False) -> Image.Image:
+    """
+    Artwork on gradient-filled borders.  Each horizontal gutter strip gets its own
+    gradient: black→white top-to-bottom (invert=False) or white→black (invert=True).
+    Content pixels are unchanged; only the transparent border regions are filled.
+    """
+    alpha     = np.array(transparent.getchannel("A"))
+    H, W      = alpha.shape
+    border    = alpha == 0
+
+    # Detect horizontal border strips via central column scan
+    center      = alpha[:, W // 8 : 7 * W // 8]
+    is_content  = center.max(axis=1) > 0
+    grad_row    = np.ones(H, dtype=np.float32)   # default: white (1.0)
+    in_strip    = False
+    strip_start = 0
+
+    def _fill(s, e):
+        length = max(e - s - 1, 1)
+        for y in range(s, e):
+            t = (y - s) / length           # 0.0 at strip top, 1.0 at strip bottom
+            grad_row[y] = 1.0 - t if invert else t
+
+    for i, has in enumerate(is_content):
+        if not has and not in_strip:
+            strip_start = i;  in_strip = True
+        elif has and in_strip:
+            _fill(strip_start, i);  in_strip = False
+    if in_strip:
+        _fill(strip_start, H)
+
+    # Build output: white bg + artwork + gradient on border pixels
+    result          = np.array(transparent.copy())
+    result[border]  = [255, 255, 255, 255]          # clear border to white first
+
+    grad_vals  = (grad_row * 255).astype(np.uint8)
+    grad_2d    = np.tile(grad_vals[:, np.newaxis], (1, W))
+    result[border, 0] = grad_2d[border]
+    result[border, 1] = grad_2d[border]
+    result[border, 2] = grad_2d[border]
+    result[border, 3] = 255
+    return Image.fromarray(result)
+
+
 def make_transparent_framed_jpeg_variant(transparent: Image.Image) -> Image.Image:
     """
     Transparent + 1px black frame + JPEG compression on RGB.
@@ -159,7 +205,8 @@ def process_page(kra_path: Path, processed_png: Path, synth_ep_dir: Path):
     transparent = Image.open(processed_png).convert("RGBA")
 
     for d in ("transparent", "white", "black", "jpeg", "framed", "framed_jpeg",
-              "transparent_framed", "transparent_jpeg", "transparent_framed_jpeg"):
+              "transparent_framed", "transparent_jpeg", "transparent_framed_jpeg",
+              "gradient_border", "gradient_border_inv"):
         (synth_ep_dir / d).mkdir(parents=True, exist_ok=True)
 
     transparent.save(synth_ep_dir / "transparent" / filename, "PNG")
@@ -168,6 +215,8 @@ def process_page(kra_path: Path, processed_png: Path, synth_ep_dir: Path):
     make_transparent_framed_variant(transparent).save(synth_ep_dir / "transparent_framed" / filename, "PNG")
     make_transparent_jpeg_variant(transparent).save(synth_ep_dir / "transparent_jpeg" / filename, "PNG")
     make_transparent_framed_jpeg_variant(transparent).save(synth_ep_dir / "transparent_framed_jpeg" / filename, "PNG")
+    make_gradient_border_variant(transparent, invert=False).save(synth_ep_dir / "gradient_border" / filename, "PNG")
+    make_gradient_border_variant(transparent, invert=True).save(synth_ep_dir / "gradient_border_inv" / filename, "PNG")
 
     mask, merged = load_kra_data(kra_path)
     if mask is None:
