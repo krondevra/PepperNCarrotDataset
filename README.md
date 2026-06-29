@@ -42,10 +42,6 @@ make_bubbles.py → data/overlays/bubbles/  (11 speech bubble / text box shapes)
 
 ![Before and after border removal](assets/pipeline.png)
 
-*Sample pages from 6 different episodes — initial render and cleaned target:*
-
-![Dataset sample across episodes](assets/sample_demo.gif)
-
 ---
 
 ## Directory structure
@@ -244,8 +240,8 @@ Separated preprocessing intermediates from the final dataset:
 ### v1.7.2 · Dataset variant rename
 `transparent_*` prefix replaced with `_cleaned` suffix so each input variant sorts alphabetically adjacent to its cleaned pair (`framed` / `framed_cleaned`, `jpeg` / `jpeg_cleaned`, etc.). Same rename for overlay pairs.
 
-### v1.7.3 · sample_demo.gif + timing estimates
-Added `assets/sample_demo.gif` — 6-episode tour showing initial/cleaned pairs to give a sense of dataset variety before running the full pipeline. Updated `make_assets.py` for new directory structure and 11-variant grid. Added per-step timing estimates to How to run.
+### v1.7.3 · Timing estimates + asset refresh
+Added per-step timing estimates to How to run. Updated `make_assets.py` for new directory structure: 15-variant grid and demo GIF, each frame drawn from a different episode. Panel detection now picks the largest panel per page.
 
 ---
 
