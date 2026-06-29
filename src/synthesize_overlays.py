@@ -27,7 +27,18 @@ import sys, random
 import numpy as np
 from pathlib import Path
 from PIL import Image
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    class tqdm:
+        def __init__(self, it, desc="", **kw):
+            self._it = list(it)
+            print(f"{desc}: {len(self._it)} items")
+        def __iter__(self):
+            return iter(self._it)
+        def set_postfix(self, **kw): pass
+        @staticmethod
+        def write(msg): print(msg)
 
 DATASET     = Path("data/dataset")
 RENDERS_DIR = Path("data/preprocessing/renders")

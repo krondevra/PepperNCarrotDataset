@@ -29,7 +29,18 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    class tqdm:
+        def __init__(self, it, desc="", **kw):
+            self._it = list(it)
+            print(f"{desc}: {len(self._it)} items")
+        def __iter__(self):
+            return iter(self._it)
+        def set_postfix(self, **kw): pass
+        @staticmethod
+        def write(msg): print(msg)
 
 RENDERS_DIR = Path("data/preprocessing/renders")
 DATASET_DIR = Path("data/dataset")

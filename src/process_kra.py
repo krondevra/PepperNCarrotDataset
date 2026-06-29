@@ -6,7 +6,19 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from tqdm import tqdm
+try:
+    from tqdm import tqdm
+except ImportError:
+    class tqdm:
+        def __init__(self, it, desc="", **kw):
+            self._it = list(it)
+            n = len(self._it)
+            print(f"{desc}: {n} items")
+        def __iter__(self):
+            return iter(self._it)
+        def set_postfix(self, **kw): pass
+        @staticmethod
+        def write(msg): print(msg)
 
 import cairosvg
 import numpy as np
