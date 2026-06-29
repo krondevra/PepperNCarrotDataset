@@ -1,11 +1,15 @@
 """
 Apply SFX and bubble overlays to synthesized panel frames.
 
-Creates two new input variants per episode:
-  sfx_overlay/    — Korean SFX composited on panel borders / background
-  bubble_overlay/ — speech bubbles / text boxes composited similarly
+Creates four new input variants per episode:
+  sfx_overlay/               — Korean SFX on white panel (RGB)
+  sfx_overlay_transparent/   — same overlays on transparent artwork (RGBA)
+  bubble_overlay/            — speech bubbles/boxes on white panel (RGB)
+  bubble_overlay_transparent/— same overlays on transparent artwork (RGBA)
 
-Target for both remains transparent/ (clean artwork).
+Overlay positions are identical between white and transparent pairs
+(same seed, same plan) so they form clean training pairs.
+Target for all four remains transparent/ (clean artwork, no overlays).
 
 Placement strategy (per detected panel):
   ~75% edge   — overlay straddles the panel's top or bottom frame line
@@ -82,21 +86,21 @@ def _place_background(pw, panel, ow, oh, rng):
     ph = y2 - y1
     margin_y = max(oh // 4, int(ph * 0.08))
 
-    # Pick one of four quadrants
     qx = rng.choice([0, 1])
     qy = rng.choice([0, 1])
 
     if qx == 0:
-        cx = rng.randint(ow // 3, pw // 3)
+        lo_x, hi_x = ow // 4, max(ow // 4 + 1, pw // 3)
     else:
-        cx = rng.randint(2 * pw // 3, pw - ow // 3)
+        lo_x, hi_x = min(2 * pw // 3, pw - ow // 4 - 1), pw - ow // 4
+    cx = rng.randint(min(lo_x, hi_x - 1), max(lo_x + 1, hi_x))
 
     if qy == 0:
         lo, hi = y1 + margin_y, y1 + ph // 3
     else:
         lo, hi = y1 + 2 * ph // 3, y2 - margin_y
-
     cy = rng.randint(min(lo, hi - 1), max(lo + 1, hi))
+
     return cx - ow // 2, cy - oh // 2
 
 
@@ -117,29 +121,37 @@ def _paste_overlay(result, ov_path, x, y, new_w, new_h):
     return result
 
 
-def apply_overlays(panel_rgba, overlay_paths, panels, pw, ph,
-                   rng, overlay_prob, edge_prob):
+def _plan_overlays(overlay_paths, panels, pw, rng, overlay_prob, edge_prob):
     """
-    Iterate over detected panels; place one overlay per panel (probabilistic).
-    Overlay is sized relative to the panel height, not the full page.
+    Decide placement for each panel and return a list of
+    (ov_path, x, y, new_w, new_h) — one entry per panel that gets an overlay.
+    Separating planning from rendering lets the same plan be applied to both
+    the white and transparent base images with identical positions.
     """
-    result = panel_rgba.copy()
+    plan = []
     for panel in panels:
         if rng.random() > overlay_prob:
             continue
-        ov_path  = rng.choice(overlay_paths)
-        panel_h  = panel[1] - panel[0]
-        scale    = rng.uniform(0.30, 0.68)   # fraction of panel height
-        new_h    = max(60, int(panel_h * scale))
-        # Derive width from overlay's own aspect ratio
-        probe    = Image.open(ov_path)
-        new_w    = max(50, int(probe.width * new_h / probe.height))
+        ov_path = rng.choice(overlay_paths)
+        panel_h = panel[1] - panel[0]
+        scale   = rng.uniform(0.30, 0.68)
+        new_h   = max(60, int(panel_h * scale))
+        probe   = Image.open(ov_path)
+        new_w   = max(50, int(probe.width * new_h / probe.height))
 
         if rng.random() < edge_prob:
             x, y = _place_edge(pw, panel, new_w, new_h, rng)
         else:
             x, y = _place_background(pw, panel, new_w, new_h, rng)
 
+        plan.append((ov_path, x, y, new_w, new_h))
+    return plan
+
+
+def apply_plan(base_rgba, plan):
+    """Composite a pre-computed overlay plan onto base_rgba."""
+    result = base_rgba.copy()
+    for ov_path, x, y, new_w, new_h in plan:
         result = _paste_overlay(result, ov_path, x, y, new_w, new_h)
     return result
 
@@ -169,7 +181,8 @@ def process_episode(ep_dir, sfx_files, bub_files):
         return
 
     print(f"\n{ep_dir.name}  ({len(pages)} pages)")
-    for variant in ("sfx_overlay", "bubble_overlay"):
+    for variant in ("sfx_overlay", "sfx_overlay_transparent",
+                    "bubble_overlay", "bubble_overlay_transparent"):
         (ep_dir / variant).mkdir(exist_ok=True)
 
     for page_path in pages:
@@ -184,19 +197,26 @@ def process_episode(ep_dir, sfx_files, bub_files):
             print(f"    skip {fname}: no panels detected")
             continue
 
-        panel = Image.open(page_path).convert("RGBA")
+        panel_white = Image.open(page_path).convert("RGBA")
+        panel_trans = Image.open(t_path).convert("RGBA")
 
         if sfx_files:
-            rng    = random.Random(_seed(ep_dir.name, fname, "sfx"))
-            result = apply_overlays(panel, sfx_files, panels, pw, ph,
-                                    rng, SFX_PROB, EDGE_PROB)
-            flatten_white(result).save(ep_dir / "sfx_overlay" / fname)
+            plan = _plan_overlays(sfx_files, panels, pw,
+                                  random.Random(_seed(ep_dir.name, fname, "sfx")),
+                                  SFX_PROB, EDGE_PROB)
+            flatten_white(apply_plan(panel_white, plan)).save(
+                ep_dir / "sfx_overlay" / fname)
+            apply_plan(panel_trans, plan).save(
+                ep_dir / "sfx_overlay_transparent" / fname)       # RGBA PNG
 
         if bub_files:
-            rng    = random.Random(_seed(ep_dir.name, fname, "bub"))
-            result = apply_overlays(panel, bub_files, panels, pw, ph,
-                                    rng, BUB_PROB, EDGE_PROB)
-            flatten_white(result).save(ep_dir / "bubble_overlay" / fname)
+            plan = _plan_overlays(bub_files, panels, pw,
+                                  random.Random(_seed(ep_dir.name, fname, "bub")),
+                                  BUB_PROB, EDGE_PROB)
+            flatten_white(apply_plan(panel_white, plan)).save(
+                ep_dir / "bubble_overlay" / fname)
+            apply_plan(panel_trans, plan).save(
+                ep_dir / "bubble_overlay_transparent" / fname)     # RGBA PNG
 
         print(f"    {fname}  ({len(panels)} panels)")
 
