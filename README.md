@@ -42,6 +42,10 @@ make_bubbles.py → data/overlays/bubbles/  (11 speech bubble / text box shapes)
 
 ![Before and after border removal](assets/pipeline.png)
 
+*Sample pages from 6 different episodes — initial render and cleaned target:*
+
+![Dataset sample across episodes](assets/sample_demo.gif)
+
 ---
 
 ## Directory structure
@@ -119,28 +123,31 @@ Overlays are placed per detected panel with a fixed seed (deterministic from epi
 ```bash
 pip install -r requirements.txt
 
-# 1. Download art-pack zips (~17 GB)
+# 1. Download art-pack zips (~17 GB, network-dependent — allow 30–60 min)
 python3 src/download_chapters.py
 
-# 2. Extract .kra files from zips
+# 2. Extract .kra files from zips (~5 min)
 python3 src/extract_kra.py
 
-# 3. Detect and remove border layers → saves initial/ + cleaned/ renders
+# 3. Detect and remove border layers → saves initial/ + cleaned/ renders (~45–90 min)
+#    Skips files that already have both renders, so safe to re-run after interruption.
 python3 src/process_kra.py
 
-# Optional: delete intermediates (zips and kra no longer needed)
+# Optional: delete intermediates (~37 GB freed, zips and kra no longer needed)
 rm -rf data/preprocessing/zips data/preprocessing/kra
 
-# 4. Generate 9 base training variants
+# 4. Generate 9 base training variants (~80 min for all 281 pages)
 python3 src/synthesize_dataset.py all
 
-# 5. Generate SFX and bubble overlay assets (once)
+# 5. Generate SFX and bubble overlay assets, once (~2 min)
 python3 src/make_sfx.py
 python3 src/make_bubbles.py
 
-# 6. Generate 4 overlay variants
+# 6. Generate 4 overlay variants (~15 min)
 python3 src/synthesize_overlays.py all
 ```
+
+**Estimated total** (excluding download): ~2.5–3 hours on a mid-range CPU.
 
 To reprocess only files that errored:
 ```bash
@@ -236,6 +243,9 @@ Separated preprocessing intermediates from the final dataset:
 
 ### v1.7.2 · Dataset variant rename
 `transparent_*` prefix replaced with `_cleaned` suffix so each input variant sorts alphabetically adjacent to its cleaned pair (`framed` / `framed_cleaned`, `jpeg` / `jpeg_cleaned`, etc.). Same rename for overlay pairs.
+
+### v1.7.3 · sample_demo.gif + timing estimates
+Added `assets/sample_demo.gif` — 6-episode tour showing initial/cleaned pairs to give a sense of dataset variety before running the full pipeline. Updated `make_assets.py` for new directory structure and 11-variant grid. Added per-step timing estimates to How to run.
 
 ---
 

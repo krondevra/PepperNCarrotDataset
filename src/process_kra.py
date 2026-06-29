@@ -418,6 +418,11 @@ def process_kra(kra_path: Path) -> dict:
         result = apply_border_mask(image, mask)
 
         output_path = build_output_path(kra_path)
+        initial_path = output_path.parent.parent / "initial" / output_path.name
+        if output_path.exists() and initial_path.exists():
+            return {"status": "skipped", "mode": None, "coverage": None,
+                    "border_layer_name": None, "border_layer_type": None,
+                    "reason": "already rendered", "output": str(output_path)}
         output_path.parent.mkdir(parents=True, exist_ok=True)
         result.save(output_path, "PNG")
 
