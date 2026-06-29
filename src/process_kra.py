@@ -6,6 +6,8 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from tqdm import tqdm
+
 import cairosvg
 import numpy as np
 from PIL import Image
@@ -448,9 +450,11 @@ def process_all_kra(kra_files: list, base_rows: list = None):
     counts = {"saved": 0, "skipped": 0, "error": 0}
     mode_counts = {}
 
-    for kra_path in kra_files:
+    bar = tqdm(kra_files, unit="kra", desc="process_kra")
+    for kra_path in bar:
         relative = kra_path.relative_to(TMP_DIR)
         episode = relative.parts[0] if relative.parts else "unknown"
+        bar.set_postfix(file=kra_path.name, ep=episode.split("_")[0])
 
         try:
             result = process_kra(kra_path)
@@ -468,10 +472,8 @@ def process_all_kra(kra_files: list, base_rows: list = None):
             mode = result["mode"] or "none"
             mode_counts[mode] = mode_counts.get(mode, 0) + 1
 
-            if status == "saved":
-                print(f"Saved [{mode}] ({result['coverage']:.3f}): {result['output']}")
-            else:
-                print(f"Skip {kra_path.name}: {result['reason']}")
+            if status != "saved":
+                tqdm.write(f"  skip {kra_path.name}: {result['reason']}")
 
         except Exception as e:
             counts["error"] += 1
@@ -486,7 +488,7 @@ def process_all_kra(kra_files: list, base_rows: list = None):
                 "reason": str(e),
                 "output": None,
             })
-            print(f"Error {kra_path.name}: {e}")
+            tqdm.write(f"  error {kra_path.name}: {e}")
 
     if base_rows is not None:
         retried_names = {r["kra_file"] for r in rows}

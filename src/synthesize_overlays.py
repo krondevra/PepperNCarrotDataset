@@ -27,6 +27,7 @@ import sys, random
 import numpy as np
 from pathlib import Path
 from PIL import Image
+from tqdm import tqdm
 
 DATASET     = Path("data/dataset")
 RENDERS_DIR = Path("data/preprocessing/renders")
@@ -183,7 +184,7 @@ def process_episode(ep_name, sfx_files, bub_files):
         print(f"  skip {ep_name}: no pages in renders/initial/")
         return
 
-    print(f"\n{ep_name}  ({len(pages)} pages)")
+    tqdm.write(f"\n{ep_name}  ({len(pages)} pages)")
     for variant in ("sfx_overlay", "sfx_overlay_cleaned",
                     "bubble_overlay", "bubble_overlay_cleaned"):
         (dataset_ep / variant).mkdir(parents=True, exist_ok=True)
@@ -221,7 +222,7 @@ def process_episode(ep_name, sfx_files, bub_files):
             apply_plan(panel_cleaned, plan).save(
                 dataset_ep / "bubble_overlay_cleaned" / fname)
 
-        print(f"    {fname}  ({len(panels)} panels)")
+        tqdm.write(f"    {fname}  ({len(panels)} panels)")
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
@@ -251,8 +252,9 @@ def main():
         print(f"No episodes matching '{arg}' in {RENDERS_DIR}")
         sys.exit(1)
 
-    print(f"Processing {len(episodes)} episode(s) ...")
-    for ep_name in episodes:
+    bar = tqdm(episodes, unit="ep", desc="synthesize_overlays")
+    for ep_name in bar:
+        bar.set_postfix(ep=ep_name.split("_")[0])
         process_episode(ep_name, sfx_files, bub_files)
 
     print("\nDone.")

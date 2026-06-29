@@ -29,6 +29,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageFilter
+from tqdm import tqdm
 
 RENDERS_DIR = Path("data/preprocessing/renders")
 DATASET_DIR = Path("data/dataset")
@@ -197,10 +198,10 @@ def main():
         for png in sorted(cleaned_dir.glob("*.png")):
             all_pages.append((ep_dir, png, initial_dir / png.name))
 
-    print(f"Processing {len(all_pages)} pages across {len(ep_dirs)} episode(s) ...")
-    for ep_dir, cleaned_path, initial_path in all_pages:
+    bar = tqdm(all_pages, unit="page", desc="synthesize_dataset")
+    for ep_dir, cleaned_path, initial_path in bar:
+        bar.set_postfix(ep=ep_dir.name.split("_")[0], page=cleaned_path.stem)
         ep_dataset_dir = DATASET_DIR / ep_dir.name
-        print(f"  {ep_dir.name}/{cleaned_path.name}")
         process_page(cleaned_path, initial_path, ep_dataset_dir)
 
     print("\nDone.")
