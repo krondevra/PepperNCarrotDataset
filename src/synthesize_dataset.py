@@ -34,10 +34,14 @@ try:
 except ImportError:
     class tqdm:
         def __init__(self, it, desc="", **kw):
-            self._it = list(it)
-            print(f"{desc}: {len(self._it)} items")
+            self._it = list(it); self._desc = desc; self._n = 0
+            print(f"{desc}: 0/{len(self._it)}", end="\r", flush=True)
         def __iter__(self):
-            return iter(self._it)
+            for x in self._it:
+                yield x
+                self._n += 1
+                print(f"{self._desc}: {self._n}/{len(self._it)}", end="\r", flush=True)
+            print()
         def set_postfix(self, **kw): pass
         @staticmethod
         def write(msg): print(msg)
@@ -144,7 +148,11 @@ VARIANTS = (
 
 
 def process_page(cleaned_path: Path, initial_path: Path, ep_dataset_dir: Path):
-    filename  = cleaned_path.name
+    filename = cleaned_path.name
+    expected = list(VARIANTS) if initial_path.exists() else [v for v in VARIANTS if v not in ("jpeg", "framed_jpeg")]
+    if all((ep_dataset_dir / v / filename).exists() for v in expected):
+        return
+
     cleaned   = Image.open(cleaned_path).convert("RGBA")
 
     for d in VARIANTS:
@@ -162,7 +170,11 @@ def process_page(cleaned_path: Path, initial_path: Path, ep_dataset_dir: Path):
         print(f"  {filename}: initial render missing — jpeg/framed_jpeg skipped")
         return
 
-    initial = Image.open(initial_path).convert("RGBA")
+    try:
+        initial = Image.open(initial_path).convert("RGBA")
+    except OSError:
+        print(f"  {filename}: initial render corrupt — jpeg/framed_jpeg skipped")
+        return
     make_jpeg_variant(initial).save(ep_dataset_dir / "jpeg" / filename, "PNG")
     make_framed_jpeg_variant(cleaned, initial).save(ep_dataset_dir / "framed_jpeg" / filename, "PNG")
 

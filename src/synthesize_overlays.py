@@ -32,10 +32,14 @@ try:
 except ImportError:
     class tqdm:
         def __init__(self, it, desc="", **kw):
-            self._it = list(it)
-            print(f"{desc}: {len(self._it)} items")
+            self._it = list(it); self._desc = desc; self._n = 0
+            print(f"{desc}: 0/{len(self._it)}", end="\r", flush=True)
         def __iter__(self):
-            return iter(self._it)
+            for x in self._it:
+                yield x
+                self._n += 1
+                print(f"{self._desc}: {self._n}/{len(self._it)}", end="\r", flush=True)
+            print()
         def set_postfix(self, **kw): pass
         @staticmethod
         def write(msg): print(msg)
@@ -205,6 +209,10 @@ def process_episode(ep_name, sfx_files, bub_files):
         cleaned_path = cleaned_dir / fname
         if not cleaned_path.exists():
             print(f"    skip {fname}: no cleaned render")
+            continue
+
+        overlay_variants = ("sfx_overlay", "sfx_overlay_cleaned", "bubble_overlay", "bubble_overlay_cleaned")
+        if all((dataset_ep / v / fname).exists() for v in overlay_variants):
             continue
 
         panels, pw, ph = detect_panels(cleaned_path)
