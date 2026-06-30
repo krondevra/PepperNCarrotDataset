@@ -24,21 +24,11 @@ The goal: teach a model to remove comic panel borders and backgrounds from manhw
 
 ## Pipeline
 
-```
-download_chapters.py → extract_kra.py → process_kra.py → synthesize_dataset.py → synthesize_overlays.py
-  fetch art-pack        unzip .kra        detect & remove    9 base training        SFX + bubble
-  zip archives          archives          border layer       variants               overlay variants
-                           ↓ (delete after process)
-                    preprocessing/kra/
-```
+![Pipeline diagram](assets/pipeline_diagram.png)
 
 After `process_kra.py` finishes, `preprocessing/kra/` and `preprocessing/zips/` can be deleted — the full dataset is generated from `preprocessing/renders/` alone.
 
-Overlay assets are generated once and reused:
-```
-make_sfx.py     → data/overlays/sfx/      (266 Korean SFX images, 7 style variants each)
-make_bubbles.py → data/overlays/bubbles/  (11 speech bubble / text box shapes)
-```
+Overlay assets are generated once and reused: `make_sfx.py` → `data/overlays/sfx/` (266 Korean SFX images, 7 style variants each), `make_bubbles.py` → `data/overlays/bubbles/` (11 speech bubble shapes).
 
 ![Before and after border removal](assets/pipeline.png)
 
@@ -46,30 +36,7 @@ make_bubbles.py → data/overlays/bubbles/  (11 speech bubble / text box shapes)
 
 ## Directory structure
 
-```
-data/
-  preprocessing/
-    renders/
-      ep01_Potion-of-Flight/
-        initial/      ← raw merged render from KRA (borders intact, any color)
-        cleaned/      ← border-removed RGBA artwork  ← TARGET for all variants
-      ep02_Rainbow-potions/
-        ...
-  dataset/
-    ep01_Potion-of-Flight/
-      black/              framed/             framed_cleaned/
-      framed_jpeg/        framed_jpeg_cleaned/
-      gradient_border/    gradient_border_inv/
-      jpeg/               jpeg_cleaned/
-      sfx_overlay/        sfx_overlay_cleaned/
-      bubble_overlay/     bubble_overlay_cleaned/
-    ep02_Rainbow-potions/
-      ...
-  overlays/
-    sfx/       ← 266 RGBA PNG overlays
-    bubbles/   ← 11 RGBA PNG overlays
-  fonts/
-```
+![Directory structure](assets/dir_structure.png)
 
 ---
 
@@ -239,6 +206,9 @@ Separated preprocessing intermediates from the final dataset:
 
 ### v1.7.2 · Dataset variant rename
 `transparent_*` prefix replaced with `_cleaned` suffix so each input variant sorts alphabetically adjacent to its cleaned pair (`framed` / `framed_cleaned`, `jpeg` / `jpeg_cleaned`, etc.). Same rename for overlay pairs.
+
+### v1.7.6 · Diagram assets
+Added `src/make_diagrams.py` generating `assets/pipeline_diagram.png` and `assets/dir_structure.png` — replaces the two ASCII code blocks in README with proper visual diagrams.
 
 ### v1.7.3 · Timing estimates + asset refresh
 Added per-step timing estimates to How to run. Updated `make_assets.py` for new directory structure: 15-variant grid and demo GIF, each frame drawn from a different episode. Panel detection now picks the largest panel per page.
