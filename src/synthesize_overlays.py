@@ -91,7 +91,9 @@ def _place_edge(pw, panel, ow, oh, rng):
     jitter   = rng.randint(-oh // 6, oh // 6)
     cy = border_y + jitter
     # Allow partial clip at left/right edges too
-    cx = rng.randint(ow // 4, pw - ow // 4)
+    lo_cx = ow // 4
+    hi_cx = pw - ow // 4
+    cx = rng.randint(min(lo_cx, hi_cx), max(lo_cx, hi_cx))
     return cx - ow // 2, cy - oh // 2
 
 
